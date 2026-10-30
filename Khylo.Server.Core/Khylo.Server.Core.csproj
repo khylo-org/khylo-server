@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ProjectGuid is only included as a requirement for SonarQube analysis -->
+  <PropertyGroup>
+    <ProjectGuid>{E383961B-9356-4D5D-8233-9A1079D03055}</ProjectGuid>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Khylo.Naming\Khylo.Naming.csproj" />
+    <ProjectReference Include="..\Khylo.Api\Khylo.Api.csproj" />
+    <ProjectReference Include="..\Khylo.Server.Implementations\Khylo.Server.Implementations.csproj" />
+    <ProjectReference Include="..\Khylo.Model\Khylo.Model.csproj" />
+    <ProjectReference Include="..\Khylo.Common\Khylo.Common.csproj" />
+    <ProjectReference Include="..\Khylo.Controller\Khylo.Controller.csproj" />
+    <ProjectReference Include="..\Khylo.Providers\Khylo.Providers.csproj" />
+    <ProjectReference Include="..\Khylo.XbmcMetadata\Khylo.XbmcMetadata.csproj" />
+    <ProjectReference Include="..\Khylo.LocalMetadata\Khylo.LocalMetadata.csproj" />
+    <ProjectReference Include="..\Khylo.Photos\Khylo.Photos.csproj" />
+    <ProjectReference Include="..\src\Khylo.Drawing\Khylo.Drawing.csproj" />
+    <ProjectReference Include="..\Khylo.MediaEncoding\Khylo.MediaEncoding.csproj" />
+    <ProjectReference Include="..\src\Khylo.Database\Khylo.Database.Implementations\Khylo.Database.Implementations.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BitFaster.Caching" />
+    <PackageReference Include="DiscUtils.Udf" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="prometheus-net.DotNetRuntime" />
+    <PackageReference Include="DotNet.Glob" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\SharedVersion.cs" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- Code Analyzers -->
+  <ItemGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <!-- TODO: Add IDisposableAnalyzers -->
+    <!-- <PackageReference Include="IDisposableAnalyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference> -->
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="SerilogAnalyzer" PrivateAssets="All" />
+    <PackageReference Include="StyleCop.Analyzers" PrivateAssets="All" />
+    <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Ignore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Localization\iso6392.txt" />
+    <EmbeddedResource Include="Localization\countries.json" />
+    <EmbeddedResource Include="Localization\Core\*.json" />
+    <EmbeddedResource Include="Localization\Ratings\*.json" />
+  </ItemGroup>
+</Project>

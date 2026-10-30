@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in Khylo Server isn't working
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping make Khylo better. Please fill in as much as you can.
+  - type: input
+    id: version
+    attributes:
+      label: Khylo version
+      description: Shown on the dashboard, for example DEV-V26.10.099
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How is Khylo installed?
+      options: [Docker, Linux package, Proxmox container, Windows, Mac, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: Remove anything private first (addresses, names, keys).
+      render: shell

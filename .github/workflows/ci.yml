@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build (Release)
+        run: dotnet build Khylo.sln -c Release --nologo
+      - name: Test
+        run: dotnet test Khylo.sln -c Release --no-build --nologo
+      - name: Build (Debug, with every style rule as an error)
+        run: dotnet build Khylo.sln -c Debug --nologo

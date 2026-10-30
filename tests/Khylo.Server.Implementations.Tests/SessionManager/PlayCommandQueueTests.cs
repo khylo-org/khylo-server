@@ -1,0 +1,93 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Khylo.Controller;
+using Khylo.Controller.Configuration;
+using Khylo.Controller.Devices;
+using Khylo.Controller.Drawing;
+using Khylo.Controller.Dto;
+using Khylo.Controller.Entities;
+using Khylo.Controller.Entities.Audio;
+using Khylo.Controller.Events;
+using Khylo.Controller.Library;
+using Khylo.Controller.Session;
+using Khylo.Model.Session;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using Xunit;
+
+namespace Khylo.Server.Implementations.Tests.SessionManager;
+
+public class PlayCommandQueueTests : IDisposable
+{
+    private readonly ILibraryManager? _previousLibraryManager;
+
+    public PlayCommandQueueTests()
+    {
+        _previousLibraryManager = BaseItem.LibraryManager;
+    }
+
+    /// <summary>
+    /// A music genre tags its artists as well as their songs, and a by-name artist row is not a
+    /// folder, so the queue query cannot exclude it. Such an item has no media sources, and a
+    /// client that reaches it in the queue gets an error instead of the next track.
+    /// </summary>
+    /// <returns>A <see cref="Task"/> representing the asynchronous unit test.</returns>
+    [Fact]
+    public async Task SendPlayCommand_GenreTaggingAnArtist_QueuesOnlyPlayableItems()
+    {
+        var genre = new MusicGenre { Id = Guid.NewGuid(), Name = "Reggaeton" };
+        var song = new Audio { Id = Guid.NewGuid(), Name = "Me Porto Bonito" };
+        var artist = new MusicArtist { Id = Guid.NewGuid(), Name = "NATTI NATASHA" };
+
+        var libraryManager = new Mock<ILibraryManager>();
+        libraryManager.Setup(i => i.GetItemById(genre.Id)).Returns(genre);
+        libraryManager
+            .Setup(i => i.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { artist, song });
+        BaseItem.LibraryManager = libraryManager.Object;
+
+        await using var sessionManager = new Khylo.Server.Core.Session.SessionManager(
+            NullLogger<Khylo.Server.Core.Session.SessionManager>.Instance,
+            Mock.Of<IEventManager>(),
+            Mock.Of<IUserDataManager>(),
+            Mock.Of<IServerConfigurationManager>(),
+            libraryManager.Object,
+            Mock.Of<IUserManager>(),
+            Mock.Of<IMusicManager>(),
+            Mock.Of<IDtoService>(),
+            Mock.Of<IImageProcessor>(),
+            Mock.Of<IServerApplicationHost>(),
+            Mock.Of<IDeviceManager>(),
+            Mock.Of<IMediaSourceManager>(),
+            Mock.Of<IHostApplicationLifetime>());
+
+        var session = await sessionManager.LogSessionActivity("app_name", "0.0.0", "device_id", "device_name", "127.0.0.1", null);
+
+        var command = new PlayRequest
+        {
+            ItemIds = new[] { genre.Id },
+            PlayCommand = PlayCommand.PlayNow
+        };
+
+        await sessionManager.SendPlayCommand(null, session.Id, command, CancellationToken.None);
+
+        Assert.Equal(new[] { song.Id }, command.ItemIds);
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            BaseItem.LibraryManager = _previousLibraryManager!;
+        }
+    }
+}

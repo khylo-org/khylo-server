@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Khylo.LiveTv</AssemblyName>
+    <RootNamespace>Khylo.LiveTv</RootNamespace>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Khylo.LiveTv.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AsyncKeyedLock" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Khylo.XmlTv/Khylo.XmlTv.csproj" />
+    <ProjectReference Include="..\..\Khylo.Model\Khylo.Model.csproj" />
+    <ProjectReference Include="..\..\Khylo.Controller\Khylo.Controller.csproj" />
+    <ProjectReference Include="..\..\Khylo.Common\Khylo.Common.csproj" />
+  </ItemGroup>
+</Project>
