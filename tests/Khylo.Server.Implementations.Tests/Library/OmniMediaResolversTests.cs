@@ -26,7 +26,8 @@ namespace Khylo.Server.Implementations.Tests.Library
             {
                 FileInfo = new FileSystemMetadata
                 {
-                    FullName = path,
+                    // The test paths are written Windows-style; make them this system's own
+                    FullName = path.Replace('\\', Path.DirectorySeparatorChar),
                     IsDirectory = isDirectory
                 },
                 CollectionType = collectionType,
