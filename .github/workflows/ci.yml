@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Free disk space (one test needs 5 GiB free)
+        run: sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/swift /usr/local/.ghcup
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
