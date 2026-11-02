@@ -975,6 +975,66 @@ namespace Khylo.Server.Core
         }
 
         /// <inheritdoc/>
+        public string GetHomeNetworkUrl(HttpRequest request)
+        {
+            // An address set on purpose wins
+            if (!string.IsNullOrEmpty(PublishedServerUrl))
+            {
+                return PublishedServerUrl.Trim('/');
+            }
+
+            // Already reached through a name or address that other devices can use too
+            var host = request.Host.Host;
+            if (!string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
+                && !(IPAddress.TryParse(host, out var requested) && IPAddress.IsLoopback(requested)))
+            {
+                return GetSmartApiUrl(request);
+            }
+
+            // Reached on this computer itself: use the address its home network knows it by
+            var address = NetManager.GetAllBindInterfaces(true)
+                .Where(i => i.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                    && !IPAddress.IsLoopback(i.Address)
+                    && !IsVirtualAdapter(i.Name))
+                .Select(i => i.Address)
+                .Where(a => HomeNetworkRank(a) < 3)
+                .OrderBy(HomeNetworkRank)
+                .FirstOrDefault();
+
+            return address is null ? null : GetLocalApiUrl(address.ToString());
+        }
+
+        // Adapters made by virtual machines and containers: devices at home can't reach the server through them
+        private static bool IsVirtualAdapter(string name)
+        {
+            return !string.IsNullOrEmpty(name)
+                && new[] { "vEthernet", "docker", "veth", "br-", "virbr", "vmnet", "VMware", "VirtualBox", "WSL", "Hyper-V", "Loopback" }
+                    .Any(prefix => name.Contains(prefix, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Home routers hand out 192.168.x.x most often, then 10.x.x.x; 172.16-31.x.x is mostly containers. 3 = not a home address.
+        private static int HomeNetworkRank(IPAddress address)
+        {
+            var bytes = address.GetAddressBytes();
+            if (bytes[0] == 192 && bytes[1] == 168)
+            {
+                return 0;
+            }
+
+            if (bytes[0] == 10)
+            {
+                return 1;
+            }
+
+            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+            {
+                return 2;
+            }
+
+            return 3;
+        }
+
+        /// <inheritdoc/>
         public string GetSmartApiUrl(string hostname)
         {
             // Published server ends with a /

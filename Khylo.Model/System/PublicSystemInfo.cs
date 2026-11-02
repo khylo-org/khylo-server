@@ -14,6 +14,12 @@ namespace Khylo.Model.System
         public string LocalAddress { get; set; }
 
         /// <summary>
+        /// Gets or sets the address other devices on the home network can use to reach this server, for example
+        /// http://192.168.1.20:8096. Null when the computer has no home network address.
+        /// </summary>
+        public string HomeAddress { get; set; }
+
+        /// <summary>
         /// Gets or sets the name of the server.
         /// </summary>
         /// <value>The name of the server.</value>

@@ -84,6 +84,7 @@ public class SystemManager : ISystemManager
 #pragma warning restore CS0618 // Type or member is obsolete
             ServerName = _applicationHost.FriendlyName,
             LocalAddress = _applicationHost.GetSmartApiUrl(request),
+            HomeAddress = _applicationHost.GetHomeNetworkUrl(request),
             StartupWizardCompleted = _configurationManager.CommonConfiguration.IsStartupWizardCompleted,
             SupportsLibraryMonitor = true,
             PackageName = _startupOptions.PackageName,
@@ -128,6 +129,7 @@ public class SystemManager : ISystemManager
             Id = _applicationHost.SystemId,
             ServerName = _applicationHost.FriendlyName,
             LocalAddress = _applicationHost.GetSmartApiUrl(request),
+            HomeAddress = _applicationHost.GetHomeNetworkUrl(request),
             StartupWizardCompleted = _configurationManager.CommonConfiguration.IsStartupWizardCompleted
         };
     }

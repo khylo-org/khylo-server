@@ -51,6 +51,14 @@ namespace Khylo.Controller
         string GetSmartApiUrl(HttpRequest request);
 
         /// <summary>
+        /// Gets the address other devices on the home network can use to reach this server, for showing to people.
+        /// Unlike <see cref="GetSmartApiUrl(HttpRequest)"/>, this is never the computer's own loopback address.
+        /// </summary>
+        /// <param name="request">The <see cref="HttpRequest"/> instance.</param>
+        /// <returns>A URL, or null if the computer has no home network address.</returns>
+        string GetHomeNetworkUrl(HttpRequest request);
+
+        /// <summary>
         /// Gets a URL specific for the request.
         /// </summary>
         /// <param name="remoteAddr">The remote <see cref="IPAddress"/> of the connection.</param>
