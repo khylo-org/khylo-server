@@ -11,8 +11,18 @@
 
 ---
 
-> [!IMPORTANT]
-> **Looking to install Khylo?** This page is the source code. The ready-to-run downloads (Windows installer, Mac, Linux, Proxmox and Docker) and the install guides are on the **[Khylo download page](https://github.com/khylo-org/khylo)**, or go straight to the **[latest release](https://github.com/khylo-org/khylo/releases/latest)**.
+<!-- khylo-downloads:main -->
+<p align="center">
+<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.02.02/khylo-server-26.11.02.02-windows-x64-setup.exe"><img alt="Download Windows" src="https://img.shields.io/badge/Download-Windows-d97732?style=for-the-badge"></a>
+<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.02.02/khylo-server-26.11.02.02-macos-arm64.tar.gz"><img alt="Download Mac (Apple silicon)" src="https://img.shields.io/badge/Download-Mac%20(Apple%20silicon)-d97732?style=for-the-badge"></a>
+<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.02.02/khylo-server-26.11.02.02-macos-x64.tar.gz"><img alt="Download Mac (Intel)" src="https://img.shields.io/badge/Download-Mac%20(Intel)-d97732?style=for-the-badge"></a>
+<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.02.02/khylo-server_26.11.02.02_amd64.deb"><img alt="Download Linux (Ubuntu, Debian)" src="https://img.shields.io/badge/Download-Linux%20(Ubuntu,%20Debian)-d97732?style=for-the-badge"></a>
+</p>
+
+<p align="center"><sub><a href="https://github.com/khylo-org/khylo/releases/latest">Proxmox, Docker, Arm and every other file</a></sub></p>
+<!-- /khylo-downloads -->
+
+<p align="center"><sub><b>Looking to install Khylo?</b> This page is the source code. Use the buttons above, or see the <a href="https://github.com/khylo-org/khylo">install guides</a>.</sub></p>
 
 
 Khylo Server is the heart of Khylo. It organizes your media library, fetches artwork and details, and streams to the Khylo apps on your TV, phone and browser. Everything stays on your own computer or server.
