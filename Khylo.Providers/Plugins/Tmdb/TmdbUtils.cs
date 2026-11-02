@@ -30,9 +30,9 @@ namespace Khylo.Providers.Plugins.Tmdb
         public const string ProviderName = "TheMovieDb";
 
         /// <summary>
-        /// API key to use when performing an API call.
+        /// Khylo's own API key, used when performing an API call unless the server sets its own key.
         /// </summary>
-        public const string ApiKey = "4219e299c89411838049ab0dab19ebd5";
+        public const string ApiKey = "28c28e923ff20f4a49621df1dcaf53cd";
 
         /// <summary>
         /// The image size representing the unscaled image as served by TMDb.

@@ -53,6 +53,9 @@ namespace Khylo.Providers.Plugins.Tmdb
 
             // Not really interested in NotFoundException
             _tmDbClient.ThrowApiExceptions = false;
+
+            // If TMDb says "too many requests" (429), wait as long as it asks and try again.
+            _tmDbClient.MaxRetryCount = 4;
         }
 
         /// <summary>
@@ -709,8 +712,11 @@ namespace Khylo.Providers.Plugins.Tmdb
             }
         }
 
+        // Every call to the TMDb API starts here, so this is where Khylo holds itself under TMDb's request limit.
         private async Task EnsureClientConfigAsync()
         {
+            await TmdbRateLimiter.WaitForTurnAsync().ConfigureAwait(false);
+
             if (!_tmDbClient.HasConfig)
             {
                 var config = await _tmDbClient.GetConfigAsync().ConfigureAwait(false);
