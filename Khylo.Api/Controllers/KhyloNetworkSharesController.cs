@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Threading;
 using System.Threading.Tasks;
+using Khylo.Api.Helpers;
+using Khylo.Api.Models.EnvironmentDtos;
 using Khylo.Common.Api;
 using Khylo.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
@@ -46,6 +48,20 @@ public class KhyloNetworkSharesController : BaseKhyloApiController
             WhyNot = reason,
             Shares = _shares.GetShares()
         };
+    }
+
+    /// <summary>
+    /// Gets the network drives people have mapped on this Windows computer (X: pointing to \nas\movies), so the folder
+    /// picker can offer them. Windows keeps drive letters private to each login, but the addresses behind them can be
+    /// connected by this server. Empty on other systems.
+    /// </summary>
+    /// <response code="200">The mapped drives.</response>
+    /// <returns>Each drive with the address behind it.</returns>
+    [HttpGet("Mapped")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<MappedDriveDto>>> GetMappedDrives()
+    {
+        return Ok(await WindowsMappedDrives.FindAsync().ConfigureAwait(false));
     }
 
     /// <summary>
