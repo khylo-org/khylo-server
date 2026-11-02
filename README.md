@@ -11,6 +11,9 @@
 
 ---
 
+> [!IMPORTANT]
+> **Looking to install Khylo?** This page is the source code. The ready-to-run downloads (Windows installer, Mac, Linux, Proxmox and Docker) and the install guides are on the **[Khylo download page](https://github.com/khylo-org/khylo)**, or go straight to the **[latest release](https://github.com/khylo-org/khylo/releases/latest)**.
+
 Khylo Server is the heart of Khylo. It organizes your media library, fetches artwork and details, and streams to the Khylo apps on your TV, phone and browser. Everything stays on your own computer or server.
 
 ## Highlights
