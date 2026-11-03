@@ -149,11 +149,9 @@ public class KhyloIntroCreditsTask : IScheduledTask
     /// <inheritdoc/>
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
     {
-        yield return new TaskTriggerInfo
-        {
-            Type = TaskTriggerInfoType.IntervalTrigger,
-            IntervalTicks = TimeSpan.FromHours(6).Ticks
-        };
+        // Never starts by itself: it reads whole movies over the network and is heavy on the CPU,
+        // so it only runs when the owner starts it from Scheduled Tasks.
+        return [];
     }
 
     private IReadOnlyList<BaseItem> Query(BaseItemKind kind) => _libraryManager.GetItemList(new InternalItemsQuery

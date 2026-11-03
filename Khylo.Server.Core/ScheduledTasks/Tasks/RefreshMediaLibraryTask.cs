@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Khylo.Controller.Library;
+using Khylo.Controller.Providers;
 using Khylo.Model.Globalization;
 using Khylo.Model.Tasks;
 using Khylo.Server.Core.Library;
@@ -19,16 +20,19 @@ public class RefreshMediaLibraryTask : IScheduledTask
     /// </summary>
     private readonly ILibraryManager _libraryManager;
     private readonly ILocalizationManager _localization;
+    private readonly IProviderManager _providerManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RefreshMediaLibraryTask" /> class.
     /// </summary>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="localization">Instance of the <see cref="ILocalizationManager"/> interface.</param>
-    public RefreshMediaLibraryTask(ILibraryManager libraryManager, ILocalizationManager localization)
+    /// <param name="providerManager">The provider manager, to stop queued refreshes when the scan is stopped.</param>
+    public RefreshMediaLibraryTask(ILibraryManager libraryManager, ILocalizationManager localization, IProviderManager providerManager)
     {
         _libraryManager = libraryManager;
         _localization = localization;
+        _providerManager = providerManager;
     }
 
     /// <inheritdoc />
@@ -67,6 +71,10 @@ public class RefreshMediaLibraryTask : IScheduledTask
         cancellationToken.ThrowIfCancellationRequested();
 
         progress.Report(0);
+
+        // Stopping the scan also stops the metadata refreshes (including intro and credit detection)
+        // it queued, which would otherwise carry on in the background
+        using var stopRefreshes = cancellationToken.Register(_providerManager.CancelQueuedRefreshes);
 
         await ((LibraryManager)_libraryManager).ValidateMediaLibraryInternal(progress, cancellationToken).ConfigureAwait(false);
     }

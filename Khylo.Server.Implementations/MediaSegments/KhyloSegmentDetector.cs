@@ -402,7 +402,7 @@ public partial class KhyloSegmentDetector
 
         var args = string.Format(
             CultureInfo.InvariantCulture,
-            "-hide_banner -loglevel error -ss {0:0.###} -t {1:0.###} -i \"{2}\" -map 0:a:0 -ac 2 -f chromaprint -fp_format raw -",
+            "-hide_banner -loglevel error -threads 2 -ss {0:0.###} -t {1:0.###} -i \"{2}\" -map 0:a:0 -ac 2 -f chromaprint -fp_format raw -",
             Math.Max(0, start),
             length,
             video.Path);
@@ -435,7 +435,7 @@ public partial class KhyloSegmentDetector
         var windowStart = Math.Max(0, runtime - windowSeconds);
         var args = string.Format(
             CultureInfo.InvariantCulture,
-            "-hide_banner -loglevel info -ss {0:0.###} -i \"{1}\" -an -sn -dn -vf \"fps=1,scale=160:-2,blackframe=amount=0:threshold=20\" -f null -",
+            "-hide_banner -loglevel info -threads 2 -ss {0:0.###} -i \"{1}\" -an -sn -dn -vf \"fps=1,scale=160:-2,blackframe=amount=0:threshold=20\" -f null -",
             windowStart,
             video.Path);
         var (_, log) = await RunFfmpegAsync(args, captureStdout: false, cancellationToken).ConfigureAwait(false);

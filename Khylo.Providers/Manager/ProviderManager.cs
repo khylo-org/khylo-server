@@ -88,6 +88,7 @@ namespace Khylo.Providers.Manager
         private IMetadataSaver[] _savers = [];
         private IExternalId[] _externalIds = [];
         private IExternalUrlProvider[] _externalUrlProviders = [];
+        private CancellationTokenSource _refreshCancellation = new();
         private bool _isProcessingRefreshQueue;
         private bool _disposed;
 
@@ -1162,6 +1163,25 @@ namespace Khylo.Providers.Manager
             Task.Run(StartProcessingRefreshQueue);
         }
 
+        /// <inheritdoc/>
+        public void CancelQueuedRefreshes()
+        {
+            CancellationTokenSource stopped;
+            int dropped;
+            lock (_refreshQueueLock)
+            {
+                dropped = _refreshQueue.Count;
+                _refreshQueue.Clear();
+
+                // Whatever is refreshing now holds the old source; later refreshes get a fresh one.
+                stopped = _refreshCancellation;
+                _refreshCancellation = new CancellationTokenSource();
+            }
+
+            _logger.LogInformation("Stopping metadata refreshes: {Count} waiting item(s) dropped", dropped);
+            stopped.Cancel();
+        }
+
         private async Task StartProcessingRefreshQueue()
         {
             var libraryManager = _libraryManager;
@@ -1176,26 +1196,32 @@ namespace Khylo.Providers.Manager
                 return;
             }
 
-            var cancellationToken = _disposeCancellationTokenSource.Token;
+            var disposeToken = _disposeCancellationTokenSource.Token;
 
             libraryManager.ClearIgnoreRuleCache();
 
             while (true)
             {
                 (Guid ItemId, MetadataRefreshOptions RefreshOptions) refreshItem;
+                CancellationToken stopToken;
 
                 // Dequeueing and standing down happen under one lock, otherwise a refresh queued
                 // just after the queue ran dry would see a processor that has already stopped.
                 lock (_refreshQueueLock)
                 {
                     if (_disposed
-                        || cancellationToken.IsCancellationRequested
+                        || disposeToken.IsCancellationRequested
                         || !_refreshQueue.TryDequeue(out refreshItem, out _))
                     {
                         _isProcessingRefreshQueue = false;
                         break;
                     }
+
+                    stopToken = _refreshCancellation.Token;
                 }
+
+                using var itemCancellation = CancellationTokenSource.CreateLinkedTokenSource(disposeToken, stopToken);
+                var cancellationToken = itemCancellation.Token;
 
                 try
                 {
@@ -1213,7 +1239,8 @@ namespace Khylo.Providers.Manager
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    // Shutting down: the next pass sees the token and stands the processor down.
+                    // Shutting down, or the refreshes were stopped: carry on with whatever is queued
+                    // next (a stop empties the queue, so normally that is nothing).
                     continue;
                 }
                 catch (Exception ex)
@@ -1324,6 +1351,8 @@ namespace Khylo.Providers.Manager
                 }
 
                 _disposeCancellationTokenSource.Dispose();
+                _refreshCancellation.Cancel();
+                _refreshCancellation.Dispose();
                 _imageSaveLock.Dispose();
             }
 

@@ -36,6 +36,12 @@ namespace Khylo.Controller.Providers
         void QueueRefresh(Guid itemId, MetadataRefreshOptions options, RefreshPriority priority);
 
         /// <summary>
+        /// Stops refreshing: drops everything still waiting in the refresh queue and cancels the item
+        /// being refreshed right now. Refreshes queued afterwards run as normal.
+        /// </summary>
+        void CancelQueuedRefreshes();
+
+        /// <summary>
         /// Refreshes the full item.
         /// </summary>
         /// <param name="item">The item.</param>
