@@ -22,6 +22,10 @@
 <p align="center"><sub><a href="https://github.com/khylo-org/khylo/releases/latest">Proxmox, Docker, Arm, Android TV and every other file</a></sub></p>
 <!-- /khylo-downloads -->
 
+<!-- khylo-downloads:nav -->
+<p align="center"><sub><b>Khylo</b> &nbsp;|&nbsp; <a href="https://github.com/khylo-org/khylo">Downloads and install guides</a> · <a href="https://github.com/khylo-org/khylo-server">Server code</a> · <a href="https://github.com/khylo-org/khylo-web">Web app code</a> · <a href="https://github.com/khylo-org/khylo-androidtv">Android TV app</a> · <a href="https://github.com/khylo-org/khylo/blob/main/CHANGELOG.md">What's new</a></sub></p>
+<!-- /khylo-downloads -->
+
 <p align="center"><sub><b>Looking to install Khylo?</b> This page is the source code. Use the buttons above, or see the <a href="https://github.com/khylo-org/khylo">install guides</a>.</sub></p>
 
 
