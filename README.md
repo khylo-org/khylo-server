@@ -19,7 +19,7 @@
 <a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.02.02/khylo-server_26.11.02.02_amd64.deb"><img alt="Download Linux (Ubuntu, Debian)" src="https://img.shields.io/badge/Download-Linux%20(Ubuntu,%20Debian)-d97732?style=for-the-badge"></a>
 </p>
 
-<p align="center"><sub><a href="https://github.com/khylo-org/khylo/releases/latest">Proxmox, Docker, Arm and every other file</a></sub></p>
+<p align="center"><sub><a href="https://github.com/khylo-org/khylo/releases/latest">Proxmox, Docker, Arm, Android TV and every other file</a></sub></p>
 <!-- /khylo-downloads -->
 
 <p align="center"><sub><b>Looking to install Khylo?</b> This page is the source code. Use the buttons above, or see the <a href="https://github.com/khylo-org/khylo">install guides</a>.</sub></p>
