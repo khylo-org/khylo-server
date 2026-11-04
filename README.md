@@ -12,25 +12,14 @@
 ---
 
 <!-- khylo-downloads:main -->
-<p align="center">
-<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.02/khylo-server-26.11.04.02-windows-x64-setup.exe"><img alt="Download Windows" src="https://img.shields.io/badge/Download-Windows-d97732?style=for-the-badge"></a>
-<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.01/khylo-server-26.11.04.01-macos-arm64.tar.gz"><img alt="Download Mac (Apple silicon)" src="https://img.shields.io/badge/Download-Mac%20(Apple%20silicon)-d97732?style=for-the-badge"></a>
-<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.01/khylo-server-26.11.04.01-macos-x64.tar.gz"><img alt="Download Mac (Intel)" src="https://img.shields.io/badge/Download-Mac%20(Intel)-d97732?style=for-the-badge"></a>
-<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.01/khylo-server_26.11.04.01_amd64.deb"><img alt="Download Linux (Ubuntu, Debian)" src="https://img.shields.io/badge/Download-Linux%20(Ubuntu,%20Debian)-d97732?style=for-the-badge"></a>
-</p>
-
-<p align="center"><sub><a href="https://github.com/khylo-org/khylo/releases/tag/DEV-V26.11.04.02">Proxmox, Docker, Arm, Android TV and every other file</a></sub></p>
-
-<p align="center"><sub>There is no finished stable release yet, so these are dev builds.</sub></p>
-
-<p align="center"><sub>All downloads: <a href="https://github.com/khylo-org/khylo/tree/main/Stable"><b>Stable</b></a> (finished releases) · <a href="https://github.com/khylo-org/khylo/tree/main/Dev"><b>Dev</b></a> (every build, newest first)</sub></p>
+<h3 align="center"><a href="https://github.com/khylo-org/khylo/tree/main/Stable">Stable downloads</a> &nbsp;·&nbsp; <a href="https://github.com/khylo-org/khylo/tree/main/Dev">Dev downloads</a> &nbsp;·&nbsp; <a href="https://github.com/khylo-org/khylo#install-guides">Install guides</a></h3>
 <!-- /khylo-downloads -->
 
 <!-- khylo-downloads:nav -->
-<p align="center"><sub><b>Khylo</b> &nbsp;|&nbsp; <a href="https://github.com/khylo-org/khylo">Downloads and install guides</a> · <a href="https://github.com/khylo-org/khylo-server">Server code</a> · <a href="https://github.com/khylo-org/khylo-web">Web app code</a> · <a href="https://github.com/khylo-org/khylo-androidtv">Android TV app</a> · <a href="https://github.com/khylo-org/khylo/blob/main/CHANGELOG.md">What's new</a></sub></p>
+<p align="center"><b>Khylo</b> &nbsp;|&nbsp; <a href="https://github.com/khylo-org/khylo">Downloads and install guides</a> · <a href="https://github.com/khylo-org/khylo-server">Server code</a> · <a href="https://github.com/khylo-org/khylo-web">Web app code</a> · <a href="https://github.com/khylo-org/khylo-androidtv">Android TV app</a> · <a href="https://github.com/khylo-org/khylo/blob/main/CHANGELOG.md">What's new</a></p>
 <!-- /khylo-downloads -->
 
-<p align="center"><sub><b>Looking to install Khylo?</b> This page is the source code. Use the buttons above, or see the <a href="https://github.com/khylo-org/khylo">install guides</a>.</sub></p>
+<p align="center"><b>Looking to install Khylo?</b> This page is the source code. Use the buttons above, or see the <a href="https://github.com/khylo-org/khylo">install guides</a>.</p>
 
 
 Khylo Server is the heart of Khylo. It organizes your media library, fetches artwork and details, and streams to the Khylo apps on your TV, phone and browser. Everything stays on your own computer or server.
