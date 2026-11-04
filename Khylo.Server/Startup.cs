@@ -167,6 +167,9 @@ namespace Khylo.Server
             services.AddSingleton<Khylo.Server.Core.Library.NotificationInbox>();
             services.AddSingleton<Khylo.Controller.Library.INotificationInbox>(sp => sp.GetRequiredService<Khylo.Server.Core.Library.NotificationInbox>());
             services.AddHostedService(sp => sp.GetRequiredService<Khylo.Server.Core.Library.NotificationInbox>());
+            services.AddSingleton<Khylo.Server.Core.Updates.KhyloUpdateService>();
+            services.AddSingleton<Khylo.Controller.Updates.IKhyloUpdateService>(sp => sp.GetRequiredService<Khylo.Server.Core.Updates.KhyloUpdateService>());
+            services.AddHostedService(sp => sp.GetRequiredService<Khylo.Server.Core.Updates.KhyloUpdateService>());
             services.AddSingleton<Khylo.Server.Core.Library.NetworkShareManager>();
             services.AddSingleton<Khylo.Controller.Library.INetworkShareManager>(sp => sp.GetRequiredService<Khylo.Server.Core.Library.NetworkShareManager>());
             services.AddHostedService(sp => sp.GetRequiredService<Khylo.Server.Core.Library.NetworkShareManager>());
