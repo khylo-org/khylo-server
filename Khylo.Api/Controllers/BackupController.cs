@@ -1,5 +1,8 @@
+using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
+using Khylo.Api.Models;
 using Khylo.Common.Api;
 using Khylo.Common.Configuration;
 using Khylo.Controller.SystemBackupService;
@@ -18,6 +21,11 @@ namespace Khylo.Api.Controllers;
 [Authorize(Policy = Policies.RequiresElevation)]
 public class BackupController : BaseKhyloApiController
 {
+    private static readonly object _runLock = new();
+    private static bool _running;
+    private static DateTime _startedAt;
+    private static string? _lastError;
+
     private readonly IBackupService _backupService;
     private readonly IApplicationPaths _applicationPaths;
 
@@ -30,6 +38,88 @@ public class BackupController : BaseKhyloApiController
     {
         _backupService = backupService;
         _applicationPaths = applicationPaths;
+    }
+
+    /// <summary>
+    /// Starts a backup and answers straight away, for backups that take minutes (a big library's artwork can be many
+    /// gigabytes). Ask <c>Backup/Status</c> how it's going.
+    /// </summary>
+    /// <param name="backupOptions">The backup options.</param>
+    /// <response code="202">The backup has started.</response>
+    /// <response code="409">A backup is already running.</response>
+    /// <returns>Accepted.</returns>
+    [HttpPost("CreateInBackground")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public ActionResult CreateBackupInBackground([FromBody] BackupOptionsDto backupOptions)
+    {
+        lock (_runLock)
+        {
+            if (_running)
+            {
+                return Conflict();
+            }
+
+            _running = true;
+            _startedAt = DateTime.UtcNow;
+            _lastError = null;
+        }
+
+        var options = backupOptions ?? new();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _backupService.CreateBackupAsync(options).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                lock (_runLock)
+                {
+                    _lastError = ex.Message;
+                }
+            }
+            finally
+            {
+                lock (_runLock)
+                {
+                    _running = false;
+                }
+            }
+        });
+        return Accepted();
+    }
+
+    /// <summary>
+    /// Says whether a backup is running, how big it is so far, and how the last one ended.
+    /// </summary>
+    /// <response code="200">The state.</response>
+    /// <returns>The state of the backup.</returns>
+    [HttpGet("Status")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<BackupRunStatus> GetBackupStatus()
+    {
+        bool running;
+        DateTime started;
+        string? error;
+        lock (_runLock)
+        {
+            running = _running;
+            started = _startedAt;
+            error = _lastError;
+        }
+
+        long bytes = 0;
+        if (running && Directory.Exists(_applicationPaths.BackupPath))
+        {
+            var newest = new DirectoryInfo(_applicationPaths.BackupPath).EnumerateFiles("*.zip")
+                .Where(f => f.LastWriteTimeUtc >= started.AddSeconds(-5))
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .FirstOrDefault();
+            bytes = newest?.Length ?? 0;
+        }
+
+        return new BackupRunStatus { InProgress = running, StartedAt = running ? started : null, BytesSoFar = bytes, Error = error };
     }
 
     /// <summary>

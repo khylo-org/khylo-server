@@ -70,4 +70,34 @@ public class KhyloReleaseFeedTests
     [InlineData("DEV", false)]
     public void IsStable_OnlyDevIsNotStable(string channel, bool expected)
         => Assert.Equal(expected, KhyloReleaseFeed.IsStable(channel));
+
+    [Fact]
+    public void WhatsNew_TakesOnlyThatPartAsPlainText()
+    {
+        const string Body = """
+            **Dev build.** Newer.
+
+            <p align="center">
+            <a href="x"><img src="y"></a>
+            </p>
+
+            ## What's new in this build
+
+            **New**
+            - **Server — Updates itself.** Press [Update now](http://x) and it installs.
+
+            **Fixed**
+            - **Web — Backups.** They show progress.
+
+            Full list: [what's new](https://example.com).
+            """;
+
+        var lines = KhyloReleaseFeed.WhatsNew(Body).Split((char)10);
+
+        Assert.Equal(["New", "- Server — Updates itself. Press Update now and it installs.", "Fixed", "- Web — Backups. They show progress."], lines);
+    }
+
+    [Fact]
+    public void WhatsNew_WithoutThatPart_IsEmpty()
+        => Assert.Equal(string.Empty, KhyloReleaseFeed.WhatsNew("Just some notes"));
 }

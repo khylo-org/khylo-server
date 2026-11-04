@@ -536,6 +536,11 @@ public class BackupService : IBackupService
 
                 manifests.Add(Map(manifest, item));
             }
+            catch (IOException)
+            {
+                // A backup that is still being written: it shows up in the list once it's finished
+                _logger.LogDebug("Skipping {Path} for now, it is still being written", item);
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Tried to load manifest from archive {Path} but failed", item);

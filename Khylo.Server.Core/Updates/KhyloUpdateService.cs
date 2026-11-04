@@ -88,6 +88,8 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
     private State _state;
     private DateTime? _installingSince;
     private string? _checkError;
+    private string? _stage;
+    private int? _percent;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="KhyloUpdateService"/> class.
@@ -144,6 +146,8 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             CanInstall = can,
             WhyNot = why,
             Installing = Installing,
+            Stage = Installing ? _stage : null,
+            Percent = Installing ? _percent : null,
             LastResult = _state.LastResult,
             CheckError = _checkError
         };
@@ -163,7 +167,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             response.EnsureSuccessStatusCode();
             var releases = KhyloReleaseFeed.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false), _state.Channel);
             var newest = releases.FirstOrDefault();
-            _state.Latest = newest is null ? null : new KhyloUpdateInfo { Build = newest.Tag, PublishedAt = newest.PublishedAt, Notes = newest.Notes, Url = newest.Url };
+            _state.Latest = newest is null ? null : new KhyloUpdateInfo { Build = newest.Tag, PublishedAt = newest.PublishedAt, Notes = KhyloReleaseFeed.WhatsNew(newest.Notes), Url = newest.Url };
             _state.LastChecked = DateTime.UtcNow;
             _checkError = null;
             Save();
@@ -385,12 +389,30 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         var expected = KhyloReleaseFeed.ChecksumFor(sums, fileName)
             ?? throw new InvalidOperationException("The installer isn't in the release's checksum list, so Khylo won't install it.");
 
+        _stage = "Downloading";
+        _percent = 0;
         using (var response = await client.GetAsync(address, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
         {
             response.EnsureSuccessStatusCode();
+            var total = response.Content.Headers.ContentLength ?? 0;
+            await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
             await using var file = File.Create(setup);
-            await response.Content.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+            var buffer = new byte[81920];
+            long done = 0;
+            int read;
+            while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                done += read;
+                if (total > 0)
+                {
+                    _percent = (int)Math.Min(100, done * 100 / total);
+                }
+            }
         }
+
+        _stage = "Checking";
+        _percent = null;
 
         string actual;
         await using (var check = File.OpenRead(setup))
@@ -404,6 +426,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             throw new InvalidOperationException("The download didn't match its checksum, so Khylo threw it away and kept the version it has.");
         }
 
+        _stage = "Installing";
         var port = _config.GetNetworkConfiguration().InternalHttpPort;
         await _activity.CreateAsync(new ActivityLog($"Khylo is updating to {build} ({startedBy})", "KhyloUpdate", Guid.Empty)).ConfigureAwait(false);
         StartInstaller(setup, build, port);

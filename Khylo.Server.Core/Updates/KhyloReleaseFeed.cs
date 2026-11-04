@@ -89,6 +89,39 @@ public static class KhyloReleaseFeed
             .ToArray();
 
     /// <summary>
+    /// Takes just the "What's new in this build" part out of a release's description (the rest is download buttons and
+    /// notes) and turns it into plain text, one line per item.
+    /// </summary>
+    /// <param name="body">The release description.</param>
+    /// <returns>The plain text, or nothing if the description has no such part.</returns>
+    public static string WhatsNew(string body)
+    {
+        var lines = (body ?? string.Empty).Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n');
+        var start = Array.FindIndex(lines, l => l.StartsWith("## What's new", StringComparison.OrdinalIgnoreCase));
+        if (start < 0)
+        {
+            return string.Empty;
+        }
+
+        var result = new List<string>();
+        for (var i = start + 1; i < lines.Length; i++)
+        {
+            var line = lines[i].Trim();
+            if (line.StartsWith("Full list:", StringComparison.OrdinalIgnoreCase) || line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            if (line.Length > 0)
+            {
+                result.Add(Plain(line));
+            }
+        }
+
+        return string.Join('\n', result);
+    }
+
+    /// <summary>
     /// Finds the checksum of a file in a SHA256SUMS list ("hash  file" per line).
     /// </summary>
     /// <param name="sums">The list.</param>
@@ -114,6 +147,12 @@ public static class KhyloReleaseFeed
     /// <param name="channel">The channel.</param>
     /// <returns>True for stable (anything that isn't "dev").</returns>
     public static bool IsStable(string channel) => !string.Equals(channel, "dev", StringComparison.OrdinalIgnoreCase);
+
+    private static string Plain(string line)
+    {
+        var noBold = System.Text.RegularExpressions.Regex.Replace(line, @"\*\*(.+?)\*\*", "$1");
+        return System.Text.RegularExpressions.Regex.Replace(noBold, @"\[([^\]]+)\]\([^)]+\)", "$1");
+    }
 
     /// <summary>
     /// A release on the page.

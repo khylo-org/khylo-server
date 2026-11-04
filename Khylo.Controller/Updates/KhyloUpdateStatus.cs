@@ -37,6 +37,12 @@ public class KhyloUpdateStatus
     /// <summary>Gets or sets a value indicating whether an update is being installed right now.</summary>
     public bool Installing { get; set; }
 
+    /// <summary>Gets or sets what the update is doing now: "Downloading", "Checking" or "Installing".</summary>
+    public string? Stage { get; set; }
+
+    /// <summary>Gets or sets how much of the download is done (0 to 100), while it is downloading.</summary>
+    public int? Percent { get; set; }
+
     /// <summary>Gets or sets what happened with the last update, in plain words.</summary>
     public string? LastResult { get; set; }
 
