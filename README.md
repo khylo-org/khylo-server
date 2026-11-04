@@ -13,10 +13,10 @@
 
 <!-- khylo-downloads:main -->
 <p align="center">
-<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.02.02/khylo-server-26.11.02.02-windows-x64-setup.exe"><img alt="Download Windows" src="https://img.shields.io/badge/Download-Windows-d97732?style=for-the-badge"></a>
-<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.02.02/khylo-server-26.11.02.02-macos-arm64.tar.gz"><img alt="Download Mac (Apple silicon)" src="https://img.shields.io/badge/Download-Mac%20(Apple%20silicon)-d97732?style=for-the-badge"></a>
-<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.02.02/khylo-server-26.11.02.02-macos-x64.tar.gz"><img alt="Download Mac (Intel)" src="https://img.shields.io/badge/Download-Mac%20(Intel)-d97732?style=for-the-badge"></a>
-<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.02.02/khylo-server_26.11.02.02_amd64.deb"><img alt="Download Linux (Ubuntu, Debian)" src="https://img.shields.io/badge/Download-Linux%20(Ubuntu,%20Debian)-d97732?style=for-the-badge"></a>
+<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.01/khylo-server-26.11.04.01-windows-x64-setup.exe"><img alt="Download Windows" src="https://img.shields.io/badge/Download-Windows-d97732?style=for-the-badge"></a>
+<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.01/khylo-server-26.11.04.01-macos-arm64.tar.gz"><img alt="Download Mac (Apple silicon)" src="https://img.shields.io/badge/Download-Mac%20(Apple%20silicon)-d97732?style=for-the-badge"></a>
+<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.01/khylo-server-26.11.04.01-macos-x64.tar.gz"><img alt="Download Mac (Intel)" src="https://img.shields.io/badge/Download-Mac%20(Intel)-d97732?style=for-the-badge"></a>
+<a href="https://github.com/khylo-org/khylo/releases/download/DEV-V26.11.04.01/khylo-server_26.11.04.01_amd64.deb"><img alt="Download Linux (Ubuntu, Debian)" src="https://img.shields.io/badge/Download-Linux%20(Ubuntu,%20Debian)-d97732?style=for-the-badge"></a>
 </p>
 
 <p align="center"><sub><a href="https://github.com/khylo-org/khylo/releases/latest">Proxmox, Docker, Arm, Android TV and every other file</a></sub></p>

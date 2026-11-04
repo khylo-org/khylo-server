@@ -115,6 +115,33 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     }
 
     /// <inheritdoc />
+    public IReadOnlyList<TranscodingJob> GetActiveJobs()
+    {
+        lock (_activeTranscodingJobs)
+        {
+            return _activeTranscodingJobs.ToList();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> StopJobAsync(string jobId)
+    {
+        TranscodingJob? job;
+        lock (_activeTranscodingJobs)
+        {
+            job = _activeTranscodingJobs.FirstOrDefault(j => string.Equals(j.Id, jobId, StringComparison.Ordinal));
+        }
+
+        if (job is null)
+        {
+            return false;
+        }
+
+        await KillTranscodingJob(job, true, _ => true).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <inheritdoc />
     public void PingTranscodingJob(string playSessionId, bool? isUserPaused)
     {
         ArgumentException.ThrowIfNullOrEmpty(playSessionId);

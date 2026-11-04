@@ -26,6 +26,19 @@ public interface ITranscodeManager
     public TranscodingJob? GetTranscodingJob(string path, TranscodingJobType type);
 
     /// <summary>
+    /// Gets the transcoding jobs running right now.
+    /// </summary>
+    /// <returns>A snapshot of the active jobs.</returns>
+    public System.Collections.Generic.IReadOnlyList<TranscodingJob> GetActiveJobs();
+
+    /// <summary>
+    /// Stops one running transcoding job, deleting its partial files.
+    /// </summary>
+    /// <param name="jobId">The job's id.</param>
+    /// <returns>Whether there was such a job.</returns>
+    public Task<bool> StopJobAsync(string jobId);
+
+    /// <summary>
     /// Ping transcoding job.
     /// </summary>
     /// <param name="playSessionId">Play session id.</param>
