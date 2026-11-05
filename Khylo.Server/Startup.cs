@@ -167,6 +167,15 @@ namespace Khylo.Server
             services.AddSingleton<Khylo.Server.Core.Library.NotificationInbox>();
             services.AddSingleton<Khylo.Controller.Library.INotificationInbox>(sp => sp.GetRequiredService<Khylo.Server.Core.Library.NotificationInbox>());
             services.AddHostedService(sp => sp.GetRequiredService<Khylo.Server.Core.Library.NotificationInbox>());
+            services.AddSingleton<Khylo.Server.Core.Listening.ListeningStore>();
+            services.AddSingleton<Khylo.Controller.Listening.IListeningHistory>(sp => sp.GetRequiredService<Khylo.Server.Core.Listening.ListeningStore>());
+            services.AddSingleton<Khylo.Server.Core.Listening.ListeningReports>();
+            services.AddSingleton<Khylo.Controller.Listening.IListeningReports>(sp => sp.GetRequiredService<Khylo.Server.Core.Listening.ListeningReports>());
+            services.AddHostedService<Khylo.Server.Core.Listening.ListeningRecorder>();
+            services.AddSingleton<Khylo.Server.Core.Listening.InsightsStore>();
+            services.AddHostedService<Khylo.Server.Core.Listening.InsightsSampler>();
+            services.AddSingleton<Khylo.Server.Core.Listening.ListeningInsights>();
+            services.AddSingleton<Khylo.Controller.Listening.IListeningInsights>(sp => sp.GetRequiredService<Khylo.Server.Core.Listening.ListeningInsights>());
             services.AddSingleton<Khylo.Server.Core.Updates.KhyloUpdateService>();
             services.AddSingleton<Khylo.Controller.Updates.IKhyloUpdateService>(sp => sp.GetRequiredService<Khylo.Server.Core.Updates.KhyloUpdateService>());
             services.AddHostedService(sp => sp.GetRequiredService<Khylo.Server.Core.Updates.KhyloUpdateService>());

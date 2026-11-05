@@ -433,6 +433,23 @@ public class BackupService : IBackupService
                 CopyDirectory(Path.Combine(_applicationPaths.DataPath, "collections"), Path.Combine("Data", "collections"));
                 CopyDirectory(Path.Combine(_applicationPaths.DataPath, "playlists"), Path.Combine("Data", "playlists"));
                 CopyDirectory(Path.Combine(_applicationPaths.DataPath, "ScheduledTasks"), Path.Combine("Data", "ScheduledTasks"));
+
+                // The listening history is a database that may be in use: copy a consistent snapshot of it
+                var listeningFile = Path.Combine(_applicationPaths.DataPath, "listening", "listening.db");
+                if (File.Exists(listeningFile))
+                {
+                    var listeningCopy = Path.Combine(Path.GetTempPath(), "khylo-listening-" + Guid.NewGuid().ToString("N") + ".db");
+                    try
+                    {
+                        SnapshotDatabase(listeningFile, listeningCopy);
+                        await zipArchive.CreateEntryFromFileAsync(listeningCopy, NormalizePathSeparator(Path.Combine("Data", "listening", "listening.db"))).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        File.Delete(listeningCopy);
+                    }
+                }
+
                 if (backupOptions.Subtitles)
                 {
                     CopyDirectory(Path.Combine(_applicationPaths.DataPath, "subtitles"), Path.Combine("Data", "subtitles"));
@@ -602,6 +619,22 @@ public class BackupService : IBackupService
             Trickplay = options.Trickplay,
             Database = options.Database
         };
+    }
+
+    /// <summary>
+    /// Writes a consistent copy of a SQLite file that may be in use.
+    /// </summary>
+    /// <param name="sourceFile">The database file.</param>
+    /// <param name="targetFile">Where to write the copy; replaced if it exists.</param>
+    private static void SnapshotDatabase(string sourceFile, string targetFile)
+    {
+        File.Delete(targetFile);
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = sourceFile, Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "VACUUM INTO $target";
+        command.Parameters.AddWithValue("$target", targetFile);
+        command.ExecuteNonQuery();
     }
 
     /// <summary>
