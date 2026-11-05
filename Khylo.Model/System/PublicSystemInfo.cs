@@ -38,6 +38,11 @@ namespace Khylo.Model.System
         public string KhyloBuild { get; set; }
 
         /// <summary>
+        /// Gets or sets the Khylo build number shown to people, for example DEV-V26.11.05.01 (same value as <see cref="KhyloBuild"/>).
+        /// </summary>
+        public string KhyloVersion { get; set; }
+
+        /// <summary>
         /// Gets or sets the product name. This is the AssemblyProduct name.
         /// </summary>
         public string ProductName { get; set; }

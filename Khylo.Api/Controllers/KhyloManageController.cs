@@ -117,7 +117,7 @@ public class KhyloManageController : BaseKhyloApiController
             MemoryTotalBytes = total,
             MachineUptimeSeconds = Math.Round(MachineStats.Uptime().TotalSeconds),
             ServerUptimeSeconds = Math.Round(Math.Max(0, (DateTime.UtcNow - process.StartTime.ToUniversalTime()).TotalSeconds)),
-            ServerVersion = _appHost.ApplicationVersionString,
+            ServerVersion = Khylo.Common.KhyloBuildInfo.Number,
             CanRestartServer = true,
             CanRebootMachine = CanRebootMachine()
         };

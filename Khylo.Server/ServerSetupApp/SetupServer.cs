@@ -180,7 +180,9 @@ public sealed class SetupServer : IDisposable
 
                                             var sysInfo = new PublicSystemInfo
                                             {
-                                                Version = jfApplicationHost.ApplicationVersionString,
+                                                Version = Khylo.Common.KhyloBuildInfo.Number,
+                                                KhyloBuild = Khylo.Common.KhyloBuildInfo.Number,
+                                                KhyloVersion = Khylo.Common.KhyloBuildInfo.Number,
                                                 ProductName = jfApplicationHost.Name,
                                                 Id = jfApplicationHost.SystemId,
                                                 ServerName = jfApplicationHost.FriendlyName,
@@ -192,7 +194,7 @@ public sealed class SetupServer : IDisposable
                                         });
                                     });
 
-                                    var version = typeof(Khylo.Server.Core.ApplicationHost).Assembly.GetName().Version!;
+                                    var version = Khylo.Common.KhyloBuildInfo.Number;
                                     app.Run(async (context) =>
                                     {
                                         context.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;

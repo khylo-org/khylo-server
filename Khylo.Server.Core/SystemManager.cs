@@ -67,8 +67,9 @@ public class SystemManager : ISystemManager
         {
             HasPendingRestart = _applicationHost.HasPendingRestart,
             IsShuttingDown = _applicationLifetime.ApplicationStopping.IsCancellationRequested,
-            Version = _applicationHost.ApplicationVersionString,
+            Version = KhyloBuildNumber,
             KhyloBuild = KhyloBuildNumber,
+            KhyloVersion = KhyloBuildNumber,
             ProductName = _applicationHost.Name,
             WebSocketPortNumber = _applicationHost.HttpPort,
             CompletedInstallations = _installationManager.CompletedInstallations.ToArray(),
@@ -123,8 +124,9 @@ public class SystemManager : ISystemManager
     {
         return new PublicSystemInfo
         {
-            Version = _applicationHost.ApplicationVersionString,
+            Version = KhyloBuildNumber,
             KhyloBuild = KhyloBuildNumber,
+            KhyloVersion = KhyloBuildNumber,
             ProductName = _applicationHost.Name,
             Id = _applicationHost.SystemId,
             ServerName = _applicationHost.FriendlyName,

@@ -111,8 +111,8 @@ namespace Khylo.Server
                 => _logger.LogCritical((Exception)e.ExceptionObject, "Unhandled Exception");
 
             _logger.LogInformation(
-                "Khylo Media Server v{Version} (Three Paws. No Paywalls.)",
-                Assembly.GetEntryAssembly()!.GetName().Version!.ToString(3));
+                "Khylo Media Server {Version} (Three Paws. No Paywalls.)",
+                Khylo.Common.KhyloBuildInfo.Number);
 
             StartupHelpers.LogEnvironmentInfo(_logger, appPaths);
 

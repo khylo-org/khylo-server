@@ -173,7 +173,7 @@ namespace Khylo.Server.Core
             _deviceId = new DeviceId(ApplicationPaths, LoggerFactory.CreateLogger<DeviceId>());
 
             ApplicationVersion = typeof(ApplicationHost).Assembly.GetName().Version;
-            ApplicationVersionString = ApplicationVersion.ToString(3);
+            ApplicationVersionString = Khylo.Common.KhyloBuildInfo.Number;
             ApplicationUserAgent = Name.Replace(' ', '-') + "/" + ApplicationVersionString;
 
             _xmlSerializer = new MyXmlSerializer();
