@@ -1278,12 +1278,31 @@ namespace Khylo.LiveTv
         public Task<BaseItem[]> GetRecordingFoldersAsync(User user)
             => GetRecordingFoldersAsync(user, false);
 
+        // The recordings location as the library holds it. The same share can be saved with or without a dot after the server name,
+        // so look under both spellings, and then by the library's own list of folders
+        private BaseItem FindRecordingFolder(string location)
+        {
+            foreach (var variant in Recordings.NetworkPath.Variants(location))
+            {
+                var item = _libraryManager.FindByPath(variant, true);
+                if (item is not null)
+                {
+                    return item;
+                }
+            }
+
+            var wanted = Recordings.NetworkPath.Normalize(location);
+            var folder = _libraryManager.GetVirtualFolders()
+                .FirstOrDefault(v => v.Locations.Any(l => string.Equals(Recordings.NetworkPath.Normalize(l), wanted, StringComparison.OrdinalIgnoreCase)));
+            return folder is not null && Guid.TryParse(folder.ItemId, out var id) ? _libraryManager.GetItemById(id) : null;
+        }
+
         private async Task<BaseItem[]> GetRecordingFoldersAsync(User user, bool refreshChannels)
         {
             var folders = _recordingsManager.GetRecordingFolders()
                 .SelectMany(i => i.Locations)
                 .Distinct()
-                .Select(i => _libraryManager.FindByPath(i, true))
+                .Select(FindRecordingFolder)
                 .Where(i => i is not null && i.IsVisibleStandalone(user))
                 .SelectMany(i => _libraryManager.GetCollectionFolders(i))
                 .DistinctBy(x => x.Id)

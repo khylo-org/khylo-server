@@ -608,6 +608,10 @@ public sealed class RecordingsManager : IRecordingsManager, IDisposable
         var item = GetAffectedBaseItem(Path.GetDirectoryName(path));
         if (item is null)
         {
+            // The recordings folder is not in the library yet (or is saved under another spelling of the share), so nothing would
+            // ever pick the new recording up. Scan, so it shows in the apps.
+            _logger.LogWarning("Recording folder for {Path} is not in the library; scanning the library so the recording appears", path);
+            _libraryManager.QueueLibraryScan();
             return;
         }
 
@@ -632,7 +636,7 @@ public sealed class RecordingsManager : IRecordingsManager, IDisposable
         var parentPath = Path.GetDirectoryName(path);
         while (item is null && !string.IsNullOrEmpty(path))
         {
-            item = _libraryManager.FindByPath(path, null);
+            item = NetworkPath.Variants(path).Select(p => _libraryManager.FindByPath(p, null)).FirstOrDefault(i => i is not null);
             path = Path.GetDirectoryName(path);
         }
 

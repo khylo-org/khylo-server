@@ -213,11 +213,9 @@ namespace Khylo.Server.Core.Session
             {
                 _logger.LogDebug("Watching {0} WebSockets.", _webSockets.Count);
 
-                inactive = _webSockets.Where(i =>
-                {
-                    var elapsed = (DateTime.UtcNow - i.LastKeepAliveDate).TotalSeconds;
-                    return (elapsed > WebSocketLostTimeout * ForceKeepAliveFactor) && (elapsed < WebSocketLostTimeout);
-                }).ToList();
+                // Every connection is asked to answer on each pass (not only the quiet ones), so no connection sits idle for long: a
+                // phone or router that drops idle connections was ending a device's session every 20 seconds or so
+                inactive = _webSockets.Where(i => (DateTime.UtcNow - i.LastKeepAliveDate).TotalSeconds < WebSocketLostTimeout).ToList();
                 lost = _webSockets.Where(i => (DateTime.UtcNow - i.LastKeepAliveDate).TotalSeconds >= WebSocketLostTimeout).ToList();
             }
 

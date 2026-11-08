@@ -59,7 +59,7 @@ public class KhyloMirrorController : BaseKhyloApiController
         var source = string.IsNullOrEmpty(request.SourceSessionId) ? ThisSession()?.Id : request.SourceSessionId;
         if (source is null)
         {
-            return BadRequest("This device isn't online any more.");
+            return BadRequest("This device isn't connected to your Khylo Server right now. Close and reopen Khylo on it.");
         }
 
         try

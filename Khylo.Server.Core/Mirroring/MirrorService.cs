@@ -77,7 +77,7 @@ public sealed class MirrorService : BackgroundService, IMirrorService
     {
         var sessions = _sessions.Sessions.ToList();
         var source = sessions.FirstOrDefault(s => string.Equals(s.Id, sourceSessionId, StringComparison.Ordinal))
-            ?? throw new InvalidOperationException("That device isn't online any more.");
+            ?? throw new InvalidOperationException("The device you are mirroring from isn't connected to your Khylo Server right now. Open Khylo on it and try again.");
         if (!source.UserId.Equals(userId))
         {
             throw new InvalidOperationException("That isn't your device.");
@@ -87,13 +87,15 @@ public sealed class MirrorService : BackgroundService, IMirrorService
         foreach (var id in targetSessionIds.Distinct(StringComparer.Ordinal).Where(i => !string.Equals(i, source.Id, StringComparison.Ordinal)))
         {
             var target = sessions.FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException("A device isn't online any more.");
+                ?? throw new InvalidOperationException("A device you picked isn't connected to your Khylo Server right now. Open Khylo on it and try again.");
             if (!target.UserId.Equals(userId))
             {
                 throw new InvalidOperationException("That isn't your device.");
             }
 
-            if (!target.IsActive || !target.SupportsRemoteControl)
+            // Judge by what the device says it can do, not by whether its connection happens to be up this second: a phone's
+            // connection can drop for a moment, and the follower simply joins when it is back
+            if (target.Capabilities is not { SupportsMediaControl: true })
             {
                 throw new InvalidOperationException($"{target.DeviceName} can't be controlled. Open Khylo on it, signed in as you.");
             }
@@ -383,7 +385,17 @@ public sealed class MirrorService : BackgroundService, IMirrorService
         var started = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (session, state) in followers.Where(f => f.State.NeedsPlay))
         {
-            await Play(source, session, item.Id, item.RunTimeTicks is > 0 ? sourcePosition : null, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await Play(source, session, item.Id, item.RunTimeTicks is > 0 ? sourcePosition : null, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The follower's connection is down right now: try again on the next beat
+                _logger.LogInformation(ex, "Couldn't reach {Device} to start the mirror; will retry", session.DeviceName);
+                continue;
+            }
+
             state.NeedsPlay = false;
             state.PlayedAt = now;
             started.Add(session.Id);

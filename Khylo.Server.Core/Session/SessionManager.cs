@@ -51,6 +51,9 @@ namespace Khylo.Server.Core.Session
     /// </summary>
     public sealed class SessionManager : ISessionManager, IAsyncDisposable
     {
+        // How long a device's session is kept after its connection drops, in case it comes straight back
+        private static readonly TimeSpan SessionGracePeriod = TimeSpan.FromMinutes(2);
+
         private readonly IUserDataManager _userDataManager;
         private readonly IServerConfigurationManager _config;
         private readonly ILogger<SessionManager> _logger;
@@ -318,18 +321,33 @@ namespace Khylo.Server.Core.Session
         /// <inheritdoc />
         public async Task CloseIfNeededAsync(SessionInfo session)
         {
-            if (!session.SessionControllers.Any(i => i.IsSessionActive))
+            if (session.SessionControllers.Any(i => i.IsSessionActive))
             {
-                var key = GetSessionKey(session.Client, session.DeviceId, session.UserId);
-
-                _activeConnections.TryRemove(key, out _);
-                if (!string.IsNullOrEmpty(session.PlayState?.LiveStreamId))
-                {
-                    await CloseLiveStreamIfNeededAsync(session.PlayState.LiveStreamId, session.Id).ConfigureAwait(false);
-                }
-
-                await OnSessionEnded(session).ConfigureAwait(false);
+                return;
             }
+
+            // A phone or TV's connection can drop and come straight back. Ending the session at once gave the device a new id each
+            // time, so an id an app had just listed (Mirror, Handoff) was already gone when it was used ("that device isn't online").
+            // The session is kept for a short while, and ends only if the device has not come back by then.
+            await Task.Delay(SessionGracePeriod).ConfigureAwait(false);
+            if (session.SessionControllers.Any(i => i.IsSessionActive))
+            {
+                return;
+            }
+
+            var key = GetSessionKey(session.Client, session.DeviceId, session.UserId);
+            if (_activeConnections.TryGetValue(key, out var current) && !ReferenceEquals(current, session))
+            {
+                return;
+            }
+
+            _activeConnections.TryRemove(key, out _);
+            if (!string.IsNullOrEmpty(session.PlayState?.LiveStreamId))
+            {
+                await CloseLiveStreamIfNeededAsync(session.PlayState.LiveStreamId, session.Id).ConfigureAwait(false);
+            }
+
+            await OnSessionEnded(session).ConfigureAwait(false);
         }
 
         /// <inheritdoc />

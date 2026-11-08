@@ -192,6 +192,28 @@ public sealed class MirrorServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Follower_WhoseConnectionIsDownForAMoment_JoinsWhenItIsBack()
+    {
+        var source = Device("living");
+        var follower = Device("bedroom");
+        Play(source, Movie, 600);
+        var down = new Mock<ISessionController>();
+        down.SetupGet(c => c.IsSessionActive).Returns(false);
+        down.SetupGet(c => c.SupportsMediaControl).Returns(true);
+        var up = follower.SessionControllers;
+        follower.SessionControllers = [down.Object];
+
+        // Starting is allowed, and nothing is sent while the follower cannot be reached
+        _service.Start(Person, "living", ["bedroom"]);
+        await Tick(Now);
+        _manager.Verify(m => m.SendPlayCommand(It.IsAny<string>(), "bedroom", It.IsAny<PlayRequest>(), It.IsAny<CancellationToken>()), Times.Never());
+
+        follower.SessionControllers = up;
+        await Tick(Now.AddSeconds(1));
+        _manager.Verify(m => m.SendPlayCommand("living", "bedroom", It.IsAny<PlayRequest>(), It.IsAny<CancellationToken>()), Times.Once());
+    }
+
+    [Fact]
     public async Task KhyloTvChannel_IsFollowed_ByTuningTheFollowerToTheSameChannel()
     {
         Device("living");
