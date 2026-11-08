@@ -167,6 +167,9 @@ namespace Khylo.Server
             services.AddSingleton<Khylo.Server.Core.Library.NotificationInbox>();
             services.AddSingleton<Khylo.Controller.Library.INotificationInbox>(sp => sp.GetRequiredService<Khylo.Server.Core.Library.NotificationInbox>());
             services.AddHostedService(sp => sp.GetRequiredService<Khylo.Server.Core.Library.NotificationInbox>());
+            services.AddSingleton<Khylo.Server.Core.Mirroring.MirrorService>();
+            services.AddSingleton<Khylo.Controller.Mirroring.IMirrorService>(sp => sp.GetRequiredService<Khylo.Server.Core.Mirroring.MirrorService>());
+            services.AddHostedService(sp => sp.GetRequiredService<Khylo.Server.Core.Mirroring.MirrorService>());
             services.AddSingleton<Khylo.Server.Core.Listening.ListeningStore>();
             services.AddSingleton<Khylo.Controller.Listening.IListeningHistory>(sp => sp.GetRequiredService<Khylo.Server.Core.Listening.ListeningStore>());
             services.AddSingleton<Khylo.Server.Core.Listening.ListeningReports>();

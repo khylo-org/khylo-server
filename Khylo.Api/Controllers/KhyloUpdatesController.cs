@@ -84,6 +84,15 @@ public class KhyloUpdatesController : BaseKhyloApiController
     public ActionResult<KhyloUpdateStatus> Skip() => _updates.SkipLatest();
 
     /// <summary>
+    /// Clears the note about how the last update went.
+    /// </summary>
+    /// <response code="200">The status without the note.</response>
+    /// <returns>The status after clearing.</returns>
+    [HttpPost("DismissResult")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<KhyloUpdateStatus> DismissResult() => _updates.DismissResult();
+
+    /// <summary>
     /// Installs the build on offer. Khylo restarts as part of it, so the answer comes first.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>

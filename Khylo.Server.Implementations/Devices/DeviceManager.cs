@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
+using Khylo.Common.Configuration;
 using Khylo.Common.Extensions;
 using Khylo.Controller.Devices;
 using Khylo.Controller.Library;
@@ -30,6 +33,8 @@ namespace Khylo.Server.Implementations.Devices
     {
         private readonly IDbContextFactory<KhyloDbContext> _dbProvider;
         private readonly IUserManager _userManager;
+        private readonly string _capabilitiesFile;
+        private readonly object _capabilitiesFileLock = new();
         private readonly ConcurrentDictionary<string, ClientCapabilities> _capabilitiesMap = new();
         private readonly ConcurrentDictionary<int, Device> _devices;
         private readonly ConcurrentDictionary<string, DeviceOptions> _deviceOptions;
@@ -39,10 +44,13 @@ namespace Khylo.Server.Implementations.Devices
         /// </summary>
         /// <param name="dbProvider">The database provider.</param>
         /// <param name="userManager">The user manager.</param>
-        public DeviceManager(IDbContextFactory<KhyloDbContext> dbProvider, IUserManager userManager)
+        /// <param name="appPaths">The application paths.</param>
+        public DeviceManager(IDbContextFactory<KhyloDbContext> dbProvider, IUserManager userManager, IApplicationPaths appPaths)
         {
             _dbProvider = dbProvider;
             _userManager = userManager;
+            _capabilitiesFile = Path.Combine(appPaths.DataPath, "device-capabilities.json");
+            LoadCapabilities();
             _devices = new ConcurrentDictionary<int, Device>();
             _deviceOptions = new ConcurrentDictionary<string, DeviceOptions>();
 
@@ -69,6 +77,57 @@ namespace Khylo.Server.Implementations.Devices
         public void SaveCapabilities(string deviceId, ClientCapabilities capabilities)
         {
             _capabilitiesMap[deviceId] = capabilities;
+            PersistCapabilities();
+        }
+
+        // What each device can do (play, be controlled) is kept on disk. Held only in memory, every server restart made all devices
+        // look uncontrollable until each app was reopened, so Handoff and Mirror found nobody to send to
+        private void LoadCapabilities()
+        {
+            try
+            {
+                if (!File.Exists(_capabilitiesFile))
+                {
+                    return;
+                }
+
+                var saved = JsonSerializer.Deserialize<Dictionary<string, ClientCapabilities>>(File.ReadAllText(_capabilitiesFile));
+                foreach (var (deviceId, capabilities) in saved ?? [])
+                {
+                    _capabilitiesMap[deviceId] = capabilities;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+                // A damaged file only means devices report again the next time they open
+            }
+        }
+
+        private void PersistCapabilities()
+        {
+            try
+            {
+                lock (_capabilitiesFileLock)
+                {
+                    // Only what Handoff and Mirror need: the device profile is large and is sent again whenever a device plays something
+                    var slim = _capabilitiesMap.ToDictionary(
+                        p => p.Key,
+                        p => new ClientCapabilities
+                        {
+                            PlayableMediaTypes = p.Value.PlayableMediaTypes,
+                            SupportedCommands = p.Value.SupportedCommands,
+                            SupportsMediaControl = p.Value.SupportsMediaControl,
+                            SupportsPersistentIdentifier = p.Value.SupportsPersistentIdentifier,
+                            AppStoreUrl = p.Value.AppStoreUrl,
+                            IconUrl = p.Value.IconUrl
+                        });
+                    File.WriteAllText(_capabilitiesFile, JsonSerializer.Serialize(slim));
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Not being able to save is not worth failing the device's request for
+            }
         }
 
         /// <inheritdoc />

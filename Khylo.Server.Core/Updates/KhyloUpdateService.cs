@@ -148,7 +148,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             Installing = Installing,
             Stage = Installing ? _stage : null,
             Percent = Installing ? _percent : null,
-            LastResult = _state.LastResult,
+            LastResult = ResultStillWorthShowing() ? _state.LastResult : null,
             CheckError = _checkError
         };
     }
@@ -203,6 +203,15 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
     public KhyloUpdateStatus SkipLatest()
     {
         _state.SkippedBuild = _state.Latest?.Build;
+        Save();
+        return GetStatus();
+    }
+
+    /// <inheritdoc />
+    public KhyloUpdateStatus DismissResult()
+    {
+        _state.LastResult = null;
+        _state.LastResultAt = null;
         Save();
         return GetStatus();
     }
@@ -480,6 +489,9 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         }
     }
 
+    // The note about the last update goes away by itself after a day (an older save with no time is dropped)
+    private bool ResultStillWorthShowing() => _state.LastResultAt is { } at && DateTime.UtcNow - at < TimeSpan.FromDays(1);
+
     // What the last update did, left by the update task
     private void ReadLastResult()
     {
@@ -500,6 +512,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
                 "rolledback" => $"The update to {build} didn't start properly, so Khylo went back to the version it had.",
                 _ => "The last update didn't finish."
             };
+            _state.LastResultAt = DateTime.UtcNow;
             Save();
             _logger.LogInformation("Last update: {Result}", _state.LastResult);
         }
@@ -556,5 +569,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         public KhyloUpdateInfo? Latest { get; set; }
 
         public string? LastResult { get; set; }
+
+        public DateTime? LastResultAt { get; set; }
     }
 }

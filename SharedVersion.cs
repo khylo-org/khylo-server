@@ -4,4 +4,4 @@ using System.Reflection;
 [assembly: AssemblyFileVersion("26.0.0")]
 
 // The Khylo build number every app shows; scripts/release.sh writes it
-[assembly: AssemblyMetadata("KhyloBuild", "DEV-V26.10.072")]
+[assembly: AssemblyMetadata("KhyloBuild", "DEV-V26.11.08.04")]

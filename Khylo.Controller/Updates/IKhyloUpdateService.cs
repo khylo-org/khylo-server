@@ -38,6 +38,12 @@ public interface IKhyloUpdateService
     KhyloUpdateStatus SkipLatest();
 
     /// <summary>
+    /// Clears the note about how the last update went.
+    /// </summary>
+    /// <returns>The status afterwards.</returns>
+    KhyloUpdateStatus DismissResult();
+
+    /// <summary>
     /// Downloads, checks and installs the build on offer. Khylo restarts as part of it.
     /// </summary>
     /// <param name="startedBy">Who asked, for the activity log ("automatically" for the quiet hour).</param>

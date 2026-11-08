@@ -240,15 +240,11 @@ public class ListingsManager : IListingsManager
         var listingsProviderInfo = config.ListingProviders
             .First(info => string.Equals(providerId, info.Id, StringComparison.OrdinalIgnoreCase));
 
-        var channelMappingExists = listingsProviderInfo.ChannelMappings
-            .Any(pair => string.Equals(pair.Name, tunerChannelNumber, StringComparison.OrdinalIgnoreCase)
-                        && string.Equals(pair.Value, providerChannelNumber, StringComparison.OrdinalIgnoreCase));
-
         listingsProviderInfo.ChannelMappings = listingsProviderInfo.ChannelMappings
             .Where(pair => !string.Equals(pair.Name, tunerChannelNumber, StringComparison.OrdinalIgnoreCase)).ToArray();
 
-        if (!string.Equals(tunerChannelNumber, providerChannelNumber, StringComparison.OrdinalIgnoreCase)
-            && !channelMappingExists)
+        // Picking a guide channel always keeps it: choosing the same one again must not undo the match
+        if (!string.Equals(tunerChannelNumber, providerChannelNumber, StringComparison.OrdinalIgnoreCase))
         {
             var newItem = new NameValuePair
             {
@@ -271,7 +267,8 @@ public class ListingsManager : IListingsManager
 
         _taskManager.CancelIfRunningAndQueue<RefreshGuideScheduledTask>();
 
-        return tunerChannelMappings.First(i => string.Equals(i.Id, tunerChannelNumber, StringComparison.OrdinalIgnoreCase));
+        return tunerChannelMappings.FirstOrDefault(i => string.Equals(i.Id, tunerChannelNumber, StringComparison.OrdinalIgnoreCase))
+            ?? new TunerChannelMapping { Id = tunerChannelNumber, ProviderChannelId = providerChannelNumber };
     }
 
     private List<(IListingsProvider Provider, ListingsProviderInfo ProviderInfo)> GetListingProviders()
