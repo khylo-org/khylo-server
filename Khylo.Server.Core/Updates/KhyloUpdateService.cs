@@ -212,6 +212,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
     {
         _state.LastResult = null;
         _state.LastResultAt = null;
+        _state.LastResultBuild = null;
         Save();
         return GetStatus();
     }
@@ -260,6 +261,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
     {
         try
         {
+            ForgetNoteFromAnotherBuild();
             ReadLastResult();
             await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken).ConfigureAwait(false);
             while (!stoppingToken.IsCancellationRequested)
@@ -489,8 +491,25 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         }
     }
 
-    // The note about the last update goes away by itself after a day (an older save with no time is dropped)
-    private bool ResultStillWorthShowing() => _state.LastResultAt is { } at && DateTime.UtcNow - at < TimeSpan.FromDays(1);
+    // The note about the last update is true only while the build it was written for is the one running, so it is shown for that
+    // build alone, and for a day at most. A note saved without a build (an older save) is dropped.
+    private bool ResultStillWorthShowing() => _state.LastResultAt is { } at
+        && DateTime.UtcNow - at < TimeSpan.FromDays(1)
+        && string.Equals(_state.LastResultBuild, _current, StringComparison.OrdinalIgnoreCase);
+
+    // Once a different build is running the old note is wrong, so it is removed from the saved settings too
+    private void ForgetNoteFromAnotherBuild()
+    {
+        if (_state.LastResult is null || string.Equals(_state.LastResultBuild, _current, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _state.LastResult = null;
+        _state.LastResultAt = null;
+        _state.LastResultBuild = null;
+        Save();
+    }
 
     // What the last update did, left by the update task
     private void ReadLastResult()
@@ -513,6 +532,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
                 _ => "The last update didn't finish."
             };
             _state.LastResultAt = DateTime.UtcNow;
+            _state.LastResultBuild = _current;
             Save();
             _logger.LogInformation("Last update: {Result}", _state.LastResult);
         }
@@ -571,5 +591,8 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         public string? LastResult { get; set; }
 
         public DateTime? LastResultAt { get; set; }
+
+        // The build that was running when the note was written
+        public string? LastResultBuild { get; set; }
     }
 }
