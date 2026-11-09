@@ -1,12 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Khylo.Api.Extensions;
+using Khylo.Api.Helpers;
+using Khylo.Common.Extensions;
+using Khylo.Controller.Library;
 using Khylo.Controller.Mirroring;
 using Khylo.Controller.Session;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Khylo.Api.Controllers;
 
@@ -23,16 +28,22 @@ public class KhyloMirrorController : BaseKhyloApiController
 {
     private readonly IMirrorService _mirrors;
     private readonly ISessionManager _sessionManager;
+    private readonly IUserManager _userManager;
+    private readonly ILogger<KhyloMirrorController> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="KhyloMirrorController"/> class.
     /// </summary>
     /// <param name="mirrors">The mirror service.</param>
     /// <param name="sessionManager">The session manager.</param>
-    public KhyloMirrorController(IMirrorService mirrors, ISessionManager sessionManager)
+    /// <param name="userManager">The user manager.</param>
+    /// <param name="logger">The logger.</param>
+    public KhyloMirrorController(IMirrorService mirrors, ISessionManager sessionManager, IUserManager userManager, ILogger<KhyloMirrorController> logger)
     {
         _mirrors = mirrors;
         _sessionManager = sessionManager;
+        _userManager = userManager;
+        _logger = logger;
     }
 
     /// <summary>
@@ -54,12 +65,12 @@ public class KhyloMirrorController : BaseKhyloApiController
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public ActionResult<MirrorInfo> Start([FromBody] MirrorRequest request)
+    public async Task<ActionResult<MirrorInfo>> Start([FromBody] MirrorRequest request)
     {
-        var source = string.IsNullOrEmpty(request.SourceSessionId) ? ThisSession()?.Id : request.SourceSessionId;
+        var source = string.IsNullOrEmpty(request.SourceSessionId) ? (await ThisSessionAsync().ConfigureAwait(false))?.Id : request.SourceSessionId;
         if (source is null)
         {
-            return BadRequest("This device isn't connected to your Khylo Server right now. Close and reopen Khylo on it.");
+            return BadRequest("The server couldn't tell which device is asking. Close and reopen Khylo on it and try again.");
         }
 
         try
@@ -111,16 +122,62 @@ public class KhyloMirrorController : BaseKhyloApiController
     [HttpDelete]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult Stop([FromQuery] string? sessionId)
+    public async Task<ActionResult> Stop([FromQuery] string? sessionId)
     {
-        var id = string.IsNullOrEmpty(sessionId) ? ThisSession()?.Id : sessionId;
+        var id = string.IsNullOrEmpty(sessionId) ? (await ThisSessionAsync().ConfigureAwait(false))?.Id : sessionId;
         return id is not null && _mirrors.Stop(User.GetUserId(), id) ? NoContent() : NotFound();
     }
 
-    private SessionInfo? ThisSession()
+    // Which device is asking. The exact device id is tried first; if the server holds no session under it (for example because it
+    // was restarted, or the app's requests name the device a little differently), the same person's most recently active session
+    // of the same app from the same address is used, and failing that the device is registered from this very request. Every step
+    // is logged, so if it ever fails again the server log says exactly what it saw.
+    private async Task<SessionInfo?> ThisSessionAsync()
     {
         var userId = User.GetUserId();
         var device = User.GetDeviceId();
-        return _sessionManager.Sessions.FirstOrDefault(s => s.UserId.Equals(userId) && string.Equals(s.DeviceId, device, StringComparison.Ordinal));
+        var client = User.GetClient();
+        var address = HttpContext.GetNormalizedRemoteIP().ToString();
+        var mine = _sessionManager.Sessions.Where(s => s.UserId.Equals(userId)).ToList();
+
+        var exact = mine.FirstOrDefault(s => string.Equals(s.DeviceId, device, StringComparison.Ordinal));
+        if (exact is not null)
+        {
+            _logger.LogInformation("Mirror: {Client} on {Address} matched its session by device id", client, address);
+            return exact;
+        }
+
+        var sameApp = mine
+            .Where(s => string.Equals(s.Client, client, StringComparison.Ordinal) && string.Equals(s.RemoteEndPoint, address, StringComparison.Ordinal))
+            .OrderByDescending(s => s.NowPlayingItem is not null)
+            .ThenByDescending(s => s.LastActivityDate)
+            .FirstOrDefault();
+        if (sameApp is not null)
+        {
+            _logger.LogWarning(
+                "Mirror: no session with device id {Device} for {Client} on {Address}; using {Other} ({OtherName}) instead. The person's sessions: {Known}",
+                device,
+                client,
+                address,
+                sameApp.DeviceId,
+                sameApp.DeviceName,
+                string.Join(", ", mine.Select(s => $"{s.Client}/{s.DeviceId}")));
+            return sameApp;
+        }
+
+        _logger.LogWarning(
+            "Mirror: no session for {Client} ({Device}) on {Address}; registering it from this request. The person's sessions: {Known}",
+            client,
+            device,
+            address,
+            string.Join(", ", mine.Select(s => $"{s.Client}/{s.DeviceId}")));
+        try
+        {
+            return await RequestHelpers.GetSession(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is ArgumentException or ResourceNotFoundException)
+        {
+            return null;
+        }
     }
 }
