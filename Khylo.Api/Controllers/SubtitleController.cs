@@ -206,6 +206,7 @@ public class SubtitleController : BaseKhyloApiController
     /// <response code="200">File returned.</response>
     /// <returns>A <see cref="FileContentResult"/> with the subtitle file.</returns>
     [HttpGet("Videos/{routeItemId}/{routeMediaSourceId}/Subtitles/{routeIndex}/Stream.{routeFormat}")]
+    [Authorize(Policy = Policies.SignedInOrHomeNetwork)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesFile("text/*")]
     public async Task<ActionResult> GetSubtitle(
@@ -292,6 +293,7 @@ public class SubtitleController : BaseKhyloApiController
     /// <response code="200">File returned.</response>
     /// <returns>A <see cref="FileContentResult"/> with the subtitle file.</returns>
     [HttpGet("Videos/{routeItemId}/{routeMediaSourceId}/Subtitles/{routeIndex}/{routeStartPositionTicks}/Stream.{routeFormat}")]
+    [Authorize(Policy = Policies.SignedInOrHomeNetwork)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesFile("text/*")]
     public Task<ActionResult> GetSubtitleWithTicks(

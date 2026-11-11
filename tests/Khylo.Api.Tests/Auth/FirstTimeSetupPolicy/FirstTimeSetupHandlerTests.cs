@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using AutoFixture;
@@ -8,6 +9,7 @@ using Khylo.Api.Auth.DefaultAuthorizationPolicy;
 using Khylo.Api.Auth.FirstTimeSetupPolicy;
 using Khylo.Api.Constants;
 using Khylo.Common.Configuration;
+using Khylo.Common.Net;
 using Khylo.Controller.Library;
 using Khylo.Database.Implementations.Entities;
 using Khylo.Database.Implementations.Enums;
@@ -28,6 +30,7 @@ namespace Khylo.Api.Tests.Auth.FirstTimeSetupPolicy
         private readonly IAuthorizationService _authorizationService;
         private readonly Mock<IUserManager> _userManagerMock;
         private readonly Mock<IHttpContextAccessor> _httpContextAccessor;
+        private readonly Mock<INetworkManager> _networkManagerMock;
 
         public FirstTimeSetupHandlerTests()
         {
@@ -36,6 +39,7 @@ namespace Khylo.Api.Tests.Auth.FirstTimeSetupPolicy
             _requirements = new List<IAuthorizationRequirement> { new FirstTimeSetupRequirement() };
             _userManagerMock = fixture.Freeze<Mock<IUserManager>>();
             _httpContextAccessor = fixture.Freeze<Mock<IHttpContextAccessor>>();
+            _networkManagerMock = fixture.Freeze<Mock<INetworkManager>>();
 
             _firstTimeSetupHandler = fixture.Create<FirstTimeSetupHandler>();
             _defaultAuthorizationHandler = fixture.Create<DefaultAuthorizationHandler>();
@@ -61,6 +65,7 @@ namespace Khylo.Api.Tests.Auth.FirstTimeSetupPolicy
         [InlineData(UserRoles.User)]
         public async Task ShouldSucceedIfStartupWizardIncomplete(string userRole)
         {
+            _networkManagerMock.Setup(n => n.IsInLocalNetwork(It.IsAny<IPAddress>())).Returns(true);
             TestHelpers.SetupConfigurationManager(_configurationManagerMock, false);
             var claims = TestHelpers.SetupUser(
                 _userManagerMock,
@@ -70,6 +75,24 @@ namespace Khylo.Api.Tests.Auth.FirstTimeSetupPolicy
             var allowed = await _authorizationService.AuthorizeAsync(claims, "FirstTime");
 
             Assert.True(allowed.Succeeded);
+        }
+
+        [Theory]
+        [InlineData(UserRoles.Administrator)]
+        [InlineData(UserRoles.Guest)]
+        [InlineData(UserRoles.User)]
+        public async Task ShouldRefuseACallerFromOutsideTheHomeNetworkIfStartupWizardIncomplete(string userRole)
+        {
+            _networkManagerMock.Setup(n => n.IsInLocalNetwork(It.IsAny<IPAddress>())).Returns(false);
+            TestHelpers.SetupConfigurationManager(_configurationManagerMock, false);
+            var claims = TestHelpers.SetupUser(
+                _userManagerMock,
+                _httpContextAccessor,
+                userRole);
+
+            var allowed = await _authorizationService.AuthorizeAsync(claims, "FirstTime");
+
+            Assert.False(allowed.Succeeded);
         }
 
         [Theory]

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Khylo.Api.Models.StartupDtos;
 using Khylo.Common.Api;
 using Khylo.Common.Net;
+using Khylo.Controller.Authentication;
 using Khylo.Controller.Configuration;
 using Khylo.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
@@ -145,9 +146,9 @@ public class StartupController : BaseKhyloApiController
             return Forbid();
         }
 
-        if (string.IsNullOrWhiteSpace(startupUserDto.Password))
+        if (PasswordPolicy.Problem(startupUserDto.Password, startupUserDto.Name ?? user.Username) is { } problem)
         {
-            return BadRequest("Password must not be empty");
+            return BadRequest(problem);
         }
 
         await _userManager.UpdateUserAsync(user).ConfigureAwait(false);

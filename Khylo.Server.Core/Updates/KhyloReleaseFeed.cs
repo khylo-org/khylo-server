@@ -16,6 +16,28 @@ public static class KhyloReleaseFeed
     public const string DownloadPrefix = "https://github.com/khylo-org/khylo/releases/download/";
 
     /// <summary>
+    /// The release's checksum list.
+    /// </summary>
+    public const string ChecksumsAsset = "SHA256SUMS.txt";
+
+    /// <summary>
+    /// The signature of the checksum list, made with Khylo's private key when the release is published.
+    /// </summary>
+    public const string SignatureAsset = "SHA256SUMS.txt.sig";
+
+    private static readonly System.Text.RegularExpressions.Regex _tagPattern = new(
+        @"^(DEV-)?V[0-9]{2}\.[0-9]{2}\.[0-9]{2,3}(\.[0-9]{2})?\z",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Says whether a release name is a real Khylo build number (DEV-V26.11.08.11, V26.11.08.11 or the older DEV-V26.10.101).
+    /// Nothing else is allowed into file names or the update script.
+    /// </summary>
+    /// <param name="tag">The release name.</param>
+    /// <returns>True for a build number.</returns>
+    public static bool IsValidTag(string? tag) => tag is not null && _tagPattern.IsMatch(tag);
+
+    /// <summary>
     /// Reads the release list.
     /// </summary>
     /// <param name="json">GitHub's answer for the releases of a repository.</param>

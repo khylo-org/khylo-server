@@ -69,7 +69,7 @@ public sealed class NetworkShareManager : BackgroundService, INetworkShareManage
         if (!(UseMountHelper() ? ContainerMayMount() : HasSysAdmin()))
         {
             return InContainer()
-                ? "Khylo needs permission to connect network shares. Add these lines under the khylo service in docker-compose.yml, then run \"docker compose up -d\":\n\ncap_add:\n  - SYS_ADMIN\n  - DAC_READ_SEARCH\nsecurity_opt:\n  - apparmor:unconfined"
+                ? "Khylo needs permission to connect network shares. Save these lines as docker-compose.shares.yml next to docker-compose.yml:\n\nservices:\n  khylo:\n    cap_add:\n      - SYS_ADMIN\n      - DAC_READ_SEARCH\n    security_opt:\n      - apparmor:unconfined\n\nThen start Khylo with both files: docker compose -f docker-compose.yml -f docker-compose.shares.yml up -d"
                 : "Khylo needs permission to mount drives to connect network shares. In a Proxmox container, it must be a privileged container with the \"cifs\" and \"nfs\" mount options allowed. Otherwise mount the share in the system instead, then choose its folder.";
         }
 

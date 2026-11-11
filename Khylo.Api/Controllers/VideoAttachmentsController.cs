@@ -6,10 +6,12 @@ using System.Threading.Tasks;
 using Khylo.Api.Attributes;
 using Khylo.Api.Extensions;
 using Khylo.Api.Helpers;
+using Khylo.Common.Api;
 using Khylo.Common.Extensions;
 using Khylo.Controller.Entities;
 using Khylo.Controller.Library;
 using Khylo.Controller.MediaEncoding;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -48,6 +50,7 @@ public class VideoAttachmentsController : BaseKhyloApiController
     /// <response code="404">Video or attachment not found.</response>
     /// <returns>An <see cref="FileStreamResult"/> containing the attachment stream on success, or a <see cref="NotFoundResult"/> if the attachment could not be found.</returns>
     [HttpGet("{videoId}/{mediaSourceId}/Attachments/{index}")]
+    [Authorize(Policy = Policies.SignedInOrHomeNetwork)]
     [ProducesFile(MediaTypeNames.Application.Octet)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

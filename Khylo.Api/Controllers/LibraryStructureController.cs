@@ -80,6 +80,7 @@ public class LibraryStructureController : BaseKhyloApiController
     /// <returns>A <see cref="NoContentResult"/>.</returns>
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> AddVirtualFolder(
         [FromQuery]
         [RegularExpression(@"^(?:\S(?:.*\S)?)$", ErrorMessage = "Library name cannot be empty or have leading/trailing spaces.")]
@@ -90,6 +91,14 @@ public class LibraryStructureController : BaseKhyloApiController
         [FromQuery] bool refreshLibrary = false)
     {
         var libraryOptions = libraryOptionsDto?.LibraryOptions ?? new LibraryOptions();
+
+        foreach (var folder in paths ?? [])
+        {
+            if (LibraryFolderAccess.ProblemOpening(folder) is { } problem)
+            {
+                return BadRequest(problem);
+            }
+        }
 
         if (paths is not null && paths.Length > 0)
         {
@@ -245,10 +254,17 @@ public class LibraryStructureController : BaseKhyloApiController
     /// <exception cref="ArgumentNullException">The name of the library may not be empty.</exception>
     [HttpPost("Paths")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult AddMediaPath(
         [FromBody, Required] MediaPathDto mediaPathDto,
         [FromQuery] bool refreshLibrary = false)
     {
+        var newPath = mediaPathDto.PathInfo?.Path ?? mediaPathDto.Path;
+        if (LibraryFolderAccess.ProblemOpening(newPath) is { } problem)
+        {
+            return BadRequest(problem);
+        }
+
         _libraryMonitor.Stop();
 
         try
@@ -288,11 +304,17 @@ public class LibraryStructureController : BaseKhyloApiController
     /// <exception cref="ArgumentNullException">The name of the library may not be empty.</exception>
     [HttpPost("Paths/Update")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult UpdateMediaPath([FromBody, Required] UpdateMediaPathRequestDto mediaPathRequestDto)
     {
         if (string.IsNullOrWhiteSpace(mediaPathRequestDto.Name))
         {
             throw new ArgumentNullException(nameof(mediaPathRequestDto), "Name must not be null or empty");
+        }
+
+        if (LibraryFolderAccess.ProblemOpening(mediaPathRequestDto.PathInfo.Path) is { } problem)
+        {
+            return BadRequest(problem);
         }
 
         _libraryManager.UpdateMediaPath(mediaPathRequestDto.Name, mediaPathRequestDto.PathInfo);
@@ -377,6 +399,12 @@ public class LibraryStructureController : BaseKhyloApiController
         }
 
         item.UpdateLibraryOptions(request.LibraryOptions);
+
+        // The file watchers follow each library's "scan when files change" setting, but only read it when they start,
+        // so without this a change would not take effect until the server restarted
+        _libraryMonitor.Stop();
+        _libraryMonitor.Start();
+
         return NoContent();
     }
 }

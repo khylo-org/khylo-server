@@ -1,11 +1,11 @@
 using System;
-using System.Diagnostics;
-using System.Globalization;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,46 +30,10 @@ namespace Khylo.Server.Core.Updates;
 public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
 {
     private const string ReleasesAddress = "https://api.github.com/repos/khylo-org/khylo/releases?per_page=30";
-    private const string TaskName = "Khylo Update";
 
-    // Runs as the system account in its own one-time task: back up, install, check Khylo answers, or put the old one back
-    private const string UpdateScript = """
-        $ErrorActionPreference = 'Continue'
-        $log = '{{UPDATE_DIR}}\update.log'
-        function Log($m) { Add-Content -Path $log -Value ("{0} {1}" -f (Get-Date -Format s), $m) }
-        $install = '{{INSTALL_DIR}}'
-        $backup = '{{UPDATE_DIR}}\previous'
-        $setup = '{{SETUP}}'
-        Log 'Update to {{BUILD}} started'
-        schtasks /End /TN "Khylo Server" | Out-Null
-        Start-Sleep -Seconds 5
-        Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
-        robocopy $install $backup /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
-        Log 'Backed up the current version'
-        $p = Start-Process -FilePath $setup -ArgumentList '/S' -Wait -PassThru
-        Log ("Installer finished with {0}" -f $p.ExitCode)
-        $ok = $false
-        for ($i = 0; $i -lt 36; $i++) {
-            Start-Sleep -Seconds 5
-            try {
-                $r = Invoke-WebRequest -Uri 'http://127.0.0.1:{{PORT}}/health' -UseBasicParsing -TimeoutSec 5
-                if ($r.Content -match 'Healthy') { $ok = $true; break }
-            } catch { }
-        }
-        if ($ok) {
-            Log 'The new version is answering'
-            Set-Content -Path '{{RESULT}}' -Value 'ok|{{BUILD}}'
-        } else {
-            Log 'The new version did not start; putting the old one back'
-            schtasks /End /TN "Khylo Server" | Out-Null
-            Start-Sleep -Seconds 5
-            robocopy $backup $install /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
-            schtasks /Run /TN "Khylo Server" | Out-Null
-            Set-Content -Path '{{RESULT}}' -Value 'rolledback|{{BUILD}}'
-        }
-        Remove-Item $setup -Force -ErrorAction SilentlyContinue
-        schtasks /Delete /TN "Khylo Update" /F | Out-Null
-        """;
+    // A checksum list is a few kilobytes and its signature about seventy bytes; anything much bigger isn't one
+    private const int MaxChecksumListBytes = 1024 * 1024;
+    private const int MaxSignatureBytes = 1024;
 
     private static readonly TimeSpan _checkEvery = TimeSpan.FromHours(6);
     private static readonly TimeSpan _wake = TimeSpan.FromMinutes(30);
@@ -263,6 +227,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         {
             ForgetNoteFromAnotherBuild();
             ReadLastResult();
+            ReadPendingResult();
             await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken).ConfigureAwait(false);
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -330,6 +295,11 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
     {
         if (!OperatingSystem.IsWindows())
         {
+            if (File.Exists("/.dockerenv") || Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")
+            {
+                return (false, "Khylo is running in Docker, and a container can't replace its own image. Where you run Docker, run \"docker compose pull\" and then \"docker compose up -d\" (on a NAS, use its pull and recreate buttons). If you installed from a downloaded Docker file, load the new file with \"docker load -i\" and run \"docker compose up -d\". Your library and settings stay as they are.");
+            }
+
             return (false, "On this kind of install Khylo doesn't update itself yet. Download the new version from the release page and install it the way you did before.");
         }
 
@@ -338,43 +308,38 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             return (false, "This is a development copy of Khylo, so it doesn't update itself.");
         }
 
-        if (InstalledFolder() is null)
+        if (WindowsUpdate.InstalledFolder() is null)
         {
             return (false, "Khylo can only update itself when it was set up with the Windows installer.");
         }
 
         if (!Environment.IsPrivilegedProcess)
         {
-            return (false, "Khylo is running as a regular Windows user, and Windows wants your permission to update. Download the new installer from the release page.");
+            // Khylo itself can't install anything, but the installer's update helper (a task that runs as the system) can
+            if (WindowsUpdate.HelperInstalled() && Directory.Exists(UpdateHelper.StageFolder(_paths.CachePath)))
+            {
+                return (true, null);
+            }
+
+            return (false, "Khylo is running as a limited Windows account, and Windows wants your permission to update. Download the new installer from the release page.");
         }
 
         return (true, null);
     }
 
-    // The folder the installer put Khylo in, when this is that copy
-    private static string? InstalledFolder()
-    {
-        if (!OperatingSystem.IsWindows() || Environment.ProcessPath is not { } exe)
-        {
-            return null;
-        }
-
-        var folder = Path.GetDirectoryName(exe);
-        if (folder is null || !string.Equals(Path.GetFileName(exe), "khylo.exe", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        using var key = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64).OpenSubKey(@"Software\Khylo");
-        var registered = key?.GetValue("InstallDir") as string;
-        return registered is not null && string.Equals(Path.TrimEndingDirectorySeparator(registered), Path.TrimEndingDirectorySeparator(folder), StringComparison.OrdinalIgnoreCase)
-            && !folder.Contains('\'', StringComparison.Ordinal)
-            ? folder
-            : null;
-    }
-
     private async Task PrepareAndHandOverAsync(string build, string startedBy, CancellationToken cancellationToken)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException();
+        }
+
+        // The release name goes into file names and into the script the system task runs, so only a real build number is used
+        if (!KhyloReleaseFeed.IsValidTag(build))
+        {
+            throw new InvalidOperationException("The release has an unexpected name, so Khylo won't install it.");
+        }
+
         var release = await FindReleaseAsync(build, cancellationToken).ConfigureAwait(false);
         var version = build.StartsWith("DEV-V", StringComparison.OrdinalIgnoreCase) ? build[5..] : build.TrimStart('V', 'v');
         var arch = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64";
@@ -384,21 +349,39 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             throw new InvalidOperationException($"The release doesn't have the Windows installer for this PC ({fileName}).");
         }
 
-        if (!release.Assets.TryGetValue("SHA256SUMS.txt", out var sumsAddress) || !sumsAddress.StartsWith(KhyloReleaseFeed.DownloadPrefix, StringComparison.Ordinal))
+        if (!release.Assets.TryGetValue(KhyloReleaseFeed.ChecksumsAsset, out var sumsAddress) || !sumsAddress.StartsWith(KhyloReleaseFeed.DownloadPrefix, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("The release has no checksums to check the download against, so Khylo won't install it.");
         }
 
-        Directory.CreateDirectory(_updateDir);
-        var setup = Path.Combine(_updateDir, fileName);
+        if (!release.Assets.TryGetValue(KhyloReleaseFeed.SignatureAsset, out var signatureAddress) || !signatureAddress.StartsWith(KhyloReleaseFeed.DownloadPrefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The release isn't signed by Khylo, so Khylo won't install it.");
+        }
+
         using var client = _http.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(30);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Khylo-Server");
 
         _logger.LogInformation("Downloading Khylo {Build} ({File})", build, fileName);
-        var sums = await client.GetStringAsync(sumsAddress, cancellationToken).ConfigureAwait(false);
-        var expected = KhyloReleaseFeed.ChecksumFor(sums, fileName)
+
+        // The checksum list says which installer is the real one, so it has to carry Khylo's signature first
+        var sumsBytes = await DownloadSmallAsync(client, sumsAddress, MaxChecksumListBytes, cancellationToken).ConfigureAwait(false);
+        var signature = await DownloadSmallAsync(client, signatureAddress, MaxSignatureBytes, cancellationToken).ConfigureAwait(false);
+        if (!KhyloUpdateSignature.Verify(sumsBytes, signature))
+        {
+            _logger.LogWarning("The checksum list of {Build} doesn't carry Khylo's signature; not installing it", build);
+            throw new InvalidOperationException("The release's checksum list doesn't carry Khylo's signature, so Khylo won't install it.");
+        }
+
+        var expected = KhyloReleaseFeed.ChecksumFor(Encoding.UTF8.GetString(sumsBytes), fileName)
             ?? throw new InvalidOperationException("The installer isn't in the release's checksum list, so Khylo won't install it.");
+
+        // With enough rights, everything for this update stays in a folder only the system and administrators can open, made
+        // that way from the start. Without them (a limited account), it waits in the stage folder for the update helper.
+        var direct = Environment.IsPrivilegedProcess;
+        var work = direct ? WindowsUpdate.CreatePrivateWorkFolder(_logger) : UpdateHelper.PrepareStageFolder(_paths.CachePath);
+        var setup = Path.Combine(work, fileName);
 
         _stage = "Downloading";
         _percent = 0;
@@ -440,7 +423,48 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         _stage = "Installing";
         var port = _config.GetNetworkConfiguration().InternalHttpPort;
         await _activity.CreateAsync(new ActivityLog($"Khylo is updating to {build} ({startedBy})", "KhyloUpdate", Guid.Empty)).ConfigureAwait(false);
-        StartInstaller(setup, build, port);
+        if (direct)
+        {
+            var installDir = WindowsUpdate.InstalledFolder() ?? throw new InvalidOperationException("Khylo's folder wasn't found.");
+            WindowsUpdate.StartInstaller(work, setup, actual, build, port, Path.Combine(work, "result.txt"), installDir, _logger);
+        }
+        else
+        {
+            UpdateHelper.HandOver(work, sumsBytes, signature, build, port);
+
+            // The helper works where this account can't see, so how it went is told by the build Khylo comes back as
+            _state.PendingBuild = build;
+            _state.PendingAt = DateTime.UtcNow;
+            Save();
+            _logger.LogWarning("Staged Khylo {Build} for the update helper, which installs it within a few minutes", build);
+        }
+    }
+
+    // A file that should be small, read with a limit so a wrong address can't fill memory
+    private static async Task<byte[]> DownloadSmallAsync(HttpClient client, string address, int maxBytes, CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync(address, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength > maxBytes)
+        {
+            throw new InvalidOperationException("A file of the release is much bigger than it should be, so Khylo won't install it.");
+        }
+
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var bytes = new MemoryStream();
+        var buffer = new byte[8192];
+        int read;
+        while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (bytes.Length + read > maxBytes)
+            {
+                throw new InvalidOperationException("A file of the release is much bigger than it should be, so Khylo won't install it.");
+            }
+
+            await bytes.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+        }
+
+        return bytes.ToArray();
     }
 
     private async Task<KhyloReleaseFeed.Release> FindReleaseAsync(string build, CancellationToken cancellationToken)
@@ -454,41 +478,6 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         var releases = KhyloReleaseFeed.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false), _state.Channel);
         return releases.FirstOrDefault(r => string.Equals(r.Tag, build, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException("That build isn't on the release page any more. Check again.");
-    }
-
-    // A separate one-time system task runs the update, so it isn't stopped when the installer stops Khylo's own task
-    private void StartInstaller(string setup, string build, int port)
-    {
-        var installDir = InstalledFolder() ?? throw new InvalidOperationException("Khylo's folder wasn't found.");
-        var script = Path.Combine(_updateDir, "update.ps1");
-        var result = Path.Combine(_updateDir, "result.txt");
-        File.WriteAllText(script, UpdateScript
-            .Replace("{{UPDATE_DIR}}", _updateDir, StringComparison.Ordinal)
-            .Replace("{{INSTALL_DIR}}", installDir, StringComparison.Ordinal)
-            .Replace("{{SETUP}}", setup, StringComparison.Ordinal)
-            .Replace("{{RESULT}}", result, StringComparison.Ordinal)
-            .Replace("{{BUILD}}", build, StringComparison.Ordinal)
-            .Replace("{{PORT}}", port.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal));
-
-        Run("schtasks.exe", "/Create", "/TN", TaskName, "/TR", $"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{script}\"", "/SC", "ONCE", "/ST", "00:00", "/RU", "SYSTEM", "/RL", "HIGHEST", "/F");
-        Run("schtasks.exe", "/Run", "/TN", TaskName);
-        _logger.LogWarning("Handed Khylo {Build} to the installer; Khylo will restart in a moment", build);
-    }
-
-    private static void Run(string file, params string[] args)
-    {
-        var info = new ProcessStartInfo(file) { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (var a in args)
-        {
-            info.ArgumentList.Add(a);
-        }
-
-        using var process = Process.Start(info) ?? throw new InvalidOperationException("Windows wouldn't start the update.");
-        process.WaitForExit(30_000);
-        if (process.ExitCode != 0)
-        {
-            throw new InvalidOperationException("Windows wouldn't schedule the update: " + process.StandardError.ReadToEnd().Trim());
-        }
     }
 
     // The note about the last update is true only while the build it was written for is the one running, so it is shown for that
@@ -511,13 +500,73 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         Save();
     }
 
+    // The note the update task left: in its own folder in the system's update folder, or (from an update an older Khylo started)
+    // in Khylo's cache. A limited account can't open the system's folder; it tells how an update went by its build instead.
+    private string? LatestResultFile()
+    {
+        var folders = new List<string> { _updateDir };
+        if (OperatingSystem.IsWindows())
+        {
+            folders.Add(WindowsUpdate.PrivateRoot());
+        }
+
+        var candidates = new List<string>();
+        foreach (var folder in folders)
+        {
+            candidates.Add(Path.Combine(folder, "result.txt"));
+            try
+            {
+                if (Directory.Exists(folder))
+                {
+                    candidates.AddRange(Directory.EnumerateDirectories(folder, "run-*").Select(d => Path.Combine(d, "result.txt")));
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Not an account that may look in there
+            }
+        }
+
+        return candidates.Where(File.Exists).OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault();
+    }
+
+    // An update the update helper was asked to install: it did it if this is that build now, and didn't if the build is still
+    // another one a good while later (the helper checks every two minutes, and an install takes a few)
+    private void ReadPendingResult()
+    {
+        if (_state.PendingBuild is not { } wanted)
+        {
+            return;
+        }
+
+        if (string.Equals(wanted, _current, StringComparison.OrdinalIgnoreCase))
+        {
+            _state.LastResult = $"Khylo updated to {wanted}.";
+        }
+        else if (_state.PendingAt is { } at && DateTime.UtcNow - at > TimeSpan.FromMinutes(20))
+        {
+            _state.LastResult = $"The update to {wanted} didn't finish, so Khylo is still on {_current}. You can run the installer from the release page yourself.";
+        }
+        else
+        {
+            return;
+        }
+
+        _state.LastResultAt = DateTime.UtcNow;
+        _state.LastResultBuild = _current;
+        _state.PendingBuild = null;
+        _state.PendingAt = null;
+        Save();
+        _logger.LogInformation("Last update: {Result}", _state.LastResult);
+    }
+
     // What the last update did, left by the update task
     private void ReadLastResult()
     {
         try
         {
-            var path = Path.Combine(_updateDir, "result.txt");
-            if (!File.Exists(path))
+            var path = LatestResultFile();
+            if (path is null)
             {
                 return;
             }
@@ -594,5 +643,10 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
 
         // The build that was running when the note was written
         public string? LastResultBuild { get; set; }
+
+        // An update left for the update helper (a limited account can't see how it goes), and when
+        public string? PendingBuild { get; set; }
+
+        public DateTime? PendingAt { get; set; }
     }
 }

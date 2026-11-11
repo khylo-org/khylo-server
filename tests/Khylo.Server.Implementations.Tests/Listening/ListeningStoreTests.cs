@@ -20,6 +20,8 @@ public sealed class ListeningStoreTests : IDisposable
 
     public ListeningStoreTests()
     {
+        // The made-up test history is only there when the test tools are switched on
+        Environment.SetEnvironmentVariable("KHYLO_TEST_TOOLS", "1");
         Directory.CreateDirectory(_folder);
         var paths = new Mock<IApplicationPaths>();
         paths.SetupGet(p => p.DataPath).Returns(_folder);
@@ -31,6 +33,7 @@ public sealed class ListeningStoreTests : IDisposable
 
     public void Dispose()
     {
+        Environment.SetEnvironmentVariable("KHYLO_TEST_TOOLS", null);
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try
         {
@@ -40,6 +43,17 @@ public sealed class ListeningStoreTests : IDisposable
         {
             // A leftover temp folder is harmless
         }
+    }
+
+    [Fact]
+    public void TestData_IsRefused_WhenTheTestToolsAreOff()
+    {
+        Environment.SetEnvironmentVariable("KHYLO_TEST_TOOLS", null);
+
+        Assert.Throws<InvalidOperationException>(() => _reports.SeedTestData(_person, 30, false));
+
+        Environment.SetEnvironmentVariable("KHYLO_TEST_TOOLS", "0");
+        Assert.Throws<InvalidOperationException>(() => _reports.SeedTestData(_person, 30, false));
     }
 
     [Fact]

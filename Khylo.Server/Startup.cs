@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Net.Mime;
 using System.Text;
 using Khylo.Api.Middleware;
+using Khylo.Common.Api;
 using Khylo.Common.Net;
 using Khylo.Controller.Configuration;
 using Khylo.Controller.Extensions;
@@ -280,7 +281,7 @@ namespace Khylo.Server
                     endpoints.MapControllers();
                     if (_serverConfigurationManager.Configuration.EnableMetrics)
                     {
-                        endpoints.MapMetrics();
+                        endpoints.MapMetrics().RequireAuthorization(Policies.RequiresElevation);
                     }
 
                     endpoints.MapHealthChecks("/health");

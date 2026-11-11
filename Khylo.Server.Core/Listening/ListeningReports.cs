@@ -32,7 +32,7 @@ public class ListeningReports : IListeningReports
         _library = library;
     }
 
-    private static bool IsDevBuild => KhyloBuildInfo.Number.StartsWith("DEV", StringComparison.OrdinalIgnoreCase);
+    private static bool TestToolsOn => KhyloBuildInfo.TestToolsEnabled;
 
     /// <inheritdoc />
     public object Summary(Guid userId, DateOnly from, DateOnly to, string? timeZone, bool video)
@@ -85,7 +85,7 @@ public class ListeningReports : IListeningReports
         var opens = ListeningStats.WrappedOpens(year);
         var open = opens.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone));
-        var previewing = preview && IsDevBuild;
+        var previewing = preview && TestToolsOn;
         if (today < opens && !previewing)
         {
             return new Dictionary<string, object?> { ["Available"] = false, ["AvailableFrom"] = open };
@@ -119,7 +119,7 @@ public class ListeningReports : IListeningReports
         var opens = ListeningStats.QuarterOpens(year, quarter);
         var open = opens.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone));
-        var previewing = preview && IsDevBuild;
+        var previewing = preview && TestToolsOn;
         if (today < opens && !previewing)
         {
             return new Dictionary<string, object?> { ["Available"] = false, ["AvailableFrom"] = open };
@@ -196,9 +196,9 @@ public class ListeningReports : IListeningReports
     /// <inheritdoc />
     public int SeedTestData(Guid userId, int days, bool video)
     {
-        if (!IsDevBuild)
+        if (!TestToolsOn)
         {
-            throw new InvalidOperationException("Test data is only available in Dev builds.");
+            throw new InvalidOperationException("Test data is only available when the test tools are turned on.");
         }
 
         days = Math.Clamp(days, 1, 400);

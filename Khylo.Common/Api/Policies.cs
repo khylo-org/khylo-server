@@ -94,4 +94,9 @@ public static class Policies
     /// Policy name for accessing lyric management.
     /// </summary>
     public const string LyricManagement = "LyricManagement";
+
+    /// <summary>
+    /// Policy name for things a player fetches without being able to sign in: allowed from the home network, or with a valid sign-in.
+    /// </summary>
+    public const string SignedInOrHomeNetwork = "SignedInOrHomeNetwork";
 }

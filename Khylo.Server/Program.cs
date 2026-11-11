@@ -14,7 +14,9 @@ using Khylo.Controller;
 using Khylo.Database.Implementations;
 using Khylo.Server.Core;
 using Khylo.Server.Core.Configuration;
+using Khylo.Server.Core.Security;
 using Khylo.Server.Core.Serialization;
+using Khylo.Server.Core.Updates;
 using Khylo.Server.Extensions;
 using Khylo.Server.Helpers;
 using Khylo.Server.Implementations.DatabaseConfiguration;
@@ -77,6 +79,14 @@ namespace Khylo.Server
                 return Task.CompletedTask;
             }
 
+            // The update helper (a system task the installer sets up) runs this every few minutes: with nothing waiting it must
+            // end at once, before the server or even the command line parser starts
+            if (args.Length > 0 && string.Equals(args[0], "--apply-update", StringComparison.Ordinal))
+            {
+                Environment.ExitCode = UpdateHelper.RunFromArguments(args);
+                return Task.CompletedTask;
+            }
+
             // Parse the command line arguments and either start the app or exit indicating error
             return Parser.Default.ParseArguments<StartupOptions>(args)
                 .MapResult(StartApp, ErrorParsingArguments);
@@ -115,6 +125,9 @@ namespace Khylo.Server
                 Khylo.Common.KhyloBuildInfo.Number);
 
             StartupHelpers.LogEnvironmentInfo(_logger, appPaths);
+
+            // The folders with the logins, database and plug-ins are for administrators and the account Khylo runs as only
+            PrivateFolders.ProtectInBackground([appPaths.ConfigurationDirectoryPath, appPaths.DataPath, appPaths.PluginsPath], _logger);
 
             // If hosting the web client, validate the client content path
             if (startupConfig.HostWebClient())

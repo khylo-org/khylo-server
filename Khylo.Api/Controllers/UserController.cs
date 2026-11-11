@@ -251,12 +251,12 @@ public class UserController : BaseKhyloApiController
                 Username = request.Username
             }).ConfigureAwait(false);
 
-            LoginThrottle.RecordSuccess(request.Username);
+            LoginThrottle.RecordSuccess(request.Username, remote);
             return result;
         }
         catch (AuthenticationException)
         {
-            LoginThrottle.RecordFailure(request.Username, remote);
+            LoginThrottle.RecordFailure(request.Username, remote, request.Username is not null && _userManager.GetUserByName(request.Username) is not null);
             throw;
         }
         catch (SecurityException e)
@@ -301,8 +301,10 @@ public class UserController : BaseKhyloApiController
     [HttpPost("Password")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult> UpdateUserPassword(
         [FromQuery] Guid? userId,
         [FromBody, Required] UpdateUserPassword request)
@@ -325,21 +327,38 @@ public class UserController : BaseKhyloApiController
         }
         else
         {
+            if (PasswordPolicy.Problem(request.NewPw, user.Username) is { } problem)
+            {
+                return BadRequest(problem);
+            }
+
             if (!User.IsInRole(UserRoles.Administrator) || (userId.HasValue && User.GetUserId().Equals(userId.Value)))
             {
+                // The current password is a guess too, so wrong ones pause further tries just like signing in
+                var passwordKey = "password:" + user.Id.ToString("N", System.Globalization.CultureInfo.InvariantCulture);
+                var remote = HttpContext.GetNormalizedRemoteIP().ToString();
+                if (LoginThrottle.RetryAfter(passwordKey, remote) is { } wait)
+                {
+                    Response.Headers.RetryAfter = ((int)Math.Ceiling(wait.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    return StatusCode(StatusCodes.Status429TooManyRequests, "Too many wrong passwords. Try again in a few minutes.");
+                }
+
                 var success = await _userManager.AuthenticateUser(
                     user.Username,
                     request.CurrentPw ?? string.Empty,
-                    HttpContext.GetNormalizedRemoteIP().ToString(),
+                    remote,
                     false).ConfigureAwait(false);
 
                 if (success is null)
                 {
+                    LoginThrottle.RecordFailure(passwordKey, remote);
                     return StatusCode(StatusCodes.Status403Forbidden, "Invalid user or password entered.");
                 }
+
+                LoginThrottle.RecordSuccess(passwordKey, remote);
             }
 
-            await _userManager.ChangePassword(user.Id, request.NewPw ?? string.Empty).ConfigureAwait(false);
+            await _userManager.ChangePassword(user.Id, request.NewPw!).ConfigureAwait(false);
 
             var currentToken = User.GetToken();
 
@@ -550,6 +569,12 @@ public class UserController : BaseKhyloApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<UserDto>> CreateUserByName([FromBody, Required] CreateUserByName request)
     {
+        // A password that is given has to be a real one (leaving it out creates the user without one, as before)
+        if (request.Password is not null && PasswordPolicy.Problem(request.Password, request.Name) is { } problem)
+        {
+            return BadRequest(problem);
+        }
+
         var newUser = await _userManager.CreateUserAsync(request.Name).ConfigureAwait(false);
 
         // no need to authenticate password for new user
@@ -599,7 +624,24 @@ public class UserController : BaseKhyloApiController
     [Tags("Authentication")]
     public async Task<ActionResult<PinRedeemResult>> ForgotPasswordPin([FromBody, Required] ForgotPasswordPinDto forgotPasswordPinRequest)
     {
+        // Guessing a reset PIN is slowed down like guessing a password
+        var remote = HttpContext.GetNormalizedRemoteIP().ToString();
+        if (LoginThrottle.RetryAfter("forgot-pin", remote) is { } wait)
+        {
+            Response.Headers.RetryAfter = ((int)Math.Ceiling(wait.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return StatusCode(StatusCodes.Status429TooManyRequests, "Too many tries. Try again in a few minutes.");
+        }
+
         var result = await _userManager.RedeemPasswordResetPin(forgotPasswordPinRequest.Pin).ConfigureAwait(false);
+        if (result.Success)
+        {
+            LoginThrottle.RecordSuccess("forgot-pin", remote);
+        }
+        else
+        {
+            LoginThrottle.RecordFailure("forgot-pin", remote);
+        }
+
         return result;
     }
 

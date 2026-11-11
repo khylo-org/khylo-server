@@ -28,7 +28,7 @@ public class KhyloListeningReviewsController : BaseKhyloApiController
         _reports = reports;
     }
 
-    private static bool IsDevBuild => KhyloBuildInfo.Number.StartsWith("DEV", StringComparison.OrdinalIgnoreCase);
+    private static bool TestToolsOn => KhyloBuildInfo.TestToolsEnabled;
 
     /// <summary>
     /// Gets a summary of any range of local days: time, plays, daily bars, top lists and what is new.
@@ -63,7 +63,7 @@ public class KhyloListeningReviewsController : BaseKhyloApiController
     /// <param name="year">The year.</param>
     /// <param name="tz">An IANA time zone name.</param>
     /// <param name="kind">music (the default) or video.</param>
-    /// <param name="preview">Skip the opening date (Dev builds only).</param>
+    /// <param name="preview">Skip the opening date (test tools only).</param>
     /// <response code="200">The review, or when it opens.</response>
     /// <returns>The review.</returns>
     [HttpGet("Wrapped")]
@@ -78,7 +78,7 @@ public class KhyloListeningReviewsController : BaseKhyloApiController
     /// <param name="quarter">1 to 4.</param>
     /// <param name="tz">An IANA time zone name.</param>
     /// <param name="kind">music (the default) or video.</param>
-    /// <param name="preview">Skip the opening date (Dev builds only).</param>
+    /// <param name="preview">Skip the opening date (test tools only).</param>
     /// <response code="200">The review, or when it opens.</response>
     /// <returns>The review.</returns>
     [HttpGet("Quarter")]
@@ -99,31 +99,31 @@ public class KhyloListeningReviewsController : BaseKhyloApiController
         => _reports.Quarters(User.GetUserId(), tz, IsVideo(kind));
 
     /// <summary>
-    /// Fills the signed-in person's own history with believable made-up listening (Dev builds only).
+    /// Fills the signed-in person's own history with believable made-up listening (test tools only).
     /// </summary>
     /// <param name="days">How many days back.</param>
     /// <param name="kind">music (the default) or video; video also adds pretend household members.</param>
     /// <response code="200">How many plays were added.</response>
-    /// <response code="403">Not available in a Stable build.</response>
+    /// <response code="403">Not available unless the test tools are turned on.</response>
     /// <returns>The number added.</returns>
     [HttpPost("Debug/Seed")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult<int> SeedTestData([FromQuery] int days = 60, [FromQuery] string? kind = null)
-        => IsDevBuild ? _reports.SeedTestData(User.GetUserId(), days, IsVideo(kind)) : Forbid();
+        => TestToolsOn ? _reports.SeedTestData(User.GetUserId(), days, IsVideo(kind)) : Forbid();
 
     /// <summary>
-    /// Removes the made-up test history and the reviews built from it (Dev builds only).
+    /// Removes the made-up test history and the reviews built from it (test tools only).
     /// </summary>
     /// <response code="204">Removed.</response>
-    /// <response code="403">Not available in a Stable build.</response>
+    /// <response code="403">Not available unless the test tools are turned on.</response>
     /// <returns>An empty result.</returns>
     [HttpDelete("Debug")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult DeleteTestData()
     {
-        if (!IsDevBuild)
+        if (!TestToolsOn)
         {
             return Forbid();
         }

@@ -27,6 +27,9 @@ public class LiveTvChannelSelectionController : BaseKhyloApiController
 {
     private const string LiveTvConfigKey = "livetv";
 
+    // A big playlist holds hundreds of thousands of channels in memory, so only the last few are kept
+    private const int MaxCachedPlaylists = 4;
+
     // Big playlists take a minute to download; picking channels opens and saves them several times
     private static readonly TimeSpan _playlistCacheLifetime = TimeSpan.FromMinutes(10);
     private static readonly ConcurrentDictionary<string, (DateTime LoadedUtc, List<ChannelInfo> Channels)> _playlistCache = new(StringComparer.Ordinal);
@@ -217,7 +220,25 @@ public class LiveTvChannelSelectionController : BaseKhyloApiController
 
         var channels = await host.GetAllPlaylistChannels(tuner, cancellationToken).ConfigureAwait(false);
         _playlistCache[cacheKey] = (DateTime.UtcNow, channels);
+        TrimPlaylistCache();
         return channels;
+    }
+
+    private static void TrimPlaylistCache()
+    {
+        foreach (var expired in _playlistCache.Where(p => DateTime.UtcNow - p.Value.LoadedUtc >= _playlistCacheLifetime).Select(p => p.Key).ToList())
+        {
+            _playlistCache.TryRemove(expired, out _);
+        }
+
+        while (_playlistCache.Count > MaxCachedPlaylists)
+        {
+            var oldest = _playlistCache.OrderBy(p => p.Value.LoadedUtc).Select(p => p.Key).FirstOrDefault();
+            if (oldest is null || !_playlistCache.TryRemove(oldest, out _))
+            {
+                break;
+            }
+        }
     }
 
     private IPlaylistTunerHost? FindPlaylistHost(string? type)

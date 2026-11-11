@@ -124,6 +124,46 @@ namespace Khylo.Server.Implementations.Tests.Invitations
         }
 
         [Fact]
+        public async Task RedeemInvitation_SingleUseCode_OnlyOnePersonGetsIn_WhenManyTryAtOnce()
+        {
+            using var manager = new InvitationManager(
+                NullLogger<InvitationManager>.Instance,
+                _userManagerMock.Object,
+                _appPathsMock.Object);
+            var invite = manager.CreateInvitation(Guid.NewGuid(), new CreateInvitationRequest { LifetimeHours = 12, MaxUses = 1 });
+
+            // Making the account takes a moment, so the attempts overlap
+            _userManagerMock.Setup(u => u.CreateUserAsync(It.IsAny<string>())).Returns(async (string name) =>
+            {
+                await Task.Delay(30);
+                return new User(name, "DefaultAuth", "DefaultReset");
+            });
+            _userManagerMock.Setup(u => u.ChangePassword(It.IsAny<Guid>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+            _userManagerMock.Setup(u => u.UpdatePolicyAsync(It.IsAny<Guid>(), It.IsAny<UserPolicy>())).Returns(Task.CompletedTask);
+            _userManagerMock.Setup(u => u.GetUserDto(It.IsAny<User>(), It.IsAny<string>())).Returns(new Khylo.Model.Dto.UserDto { Policy = new UserPolicy { AuthenticationProviderId = "default", PasswordResetProviderId = "default" } });
+
+            var attempts = Enumerable.Range(0, 8)
+                .Select(i => Task.Run(async () =>
+                {
+                    try
+                    {
+                        await manager.RedeemInvitationAsync(invite.Code, "person" + i, "a-good-password-" + i);
+                        return true;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        return false;
+                    }
+                }))
+                .ToList();
+            var results = await Task.WhenAll(attempts);
+
+            Assert.Equal(1, results.Count(r => r));
+            _userManagerMock.Verify(u => u.CreateUserAsync(It.IsAny<string>()), Times.Once);
+            Assert.Equal(1, manager.GetInvitationByCode(invite.Code).UseCount);
+        }
+
+        [Fact]
         public void RevokeInvitation_RevokesAndMarksInactive()
         {
             using var manager = new InvitationManager(

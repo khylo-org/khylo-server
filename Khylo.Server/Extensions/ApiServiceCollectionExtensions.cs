@@ -11,6 +11,7 @@ using Khylo.Api.Auth.AnonymousLanAccessPolicy;
 using Khylo.Api.Auth.DefaultAuthorizationPolicy;
 using Khylo.Api.Auth.FirstTimeSetupPolicy;
 using Khylo.Api.Auth.LocalAccessOrRequiresElevationPolicy;
+using Khylo.Api.Auth.SignedInOrHomeNetworkPolicy;
 using Khylo.Api.Auth.SyncPlayAccessPolicy;
 using Khylo.Api.Auth.UserPermissionPolicy;
 using Khylo.Api.Constants;
@@ -59,6 +60,7 @@ namespace Khylo.Server.Extensions
             serviceCollection.AddSingleton<IAuthorizationHandler, AnonymousLanAccessHandler>();
             serviceCollection.AddSingleton<IAuthorizationHandler, SyncPlayAccessHandler>();
             serviceCollection.AddSingleton<IAuthorizationHandler, LocalAccessOrRequiresElevationHandler>();
+            serviceCollection.AddSingleton<IAuthorizationHandler, SignedInOrHomeNetworkHandler>();
 
             return serviceCollection.AddAuthorizationCore(options =>
             {
@@ -68,6 +70,7 @@ namespace Khylo.Server.Extensions
                     .Build();
 
                 options.AddPolicy(Policies.AnonymousLanAccessPolicy, new AnonymousLanAccessRequirement());
+                options.AddPolicy(Policies.SignedInOrHomeNetwork, new SignedInOrHomeNetworkRequirement());
                 options.AddPolicy(Policies.CollectionManagement, new UserPermissionRequirement(PermissionKind.EnableCollectionManagement));
                 options.AddPolicy(Policies.Download, new UserPermissionRequirement(PermissionKind.EnableContentDownloading));
                 options.AddPolicy(Policies.FirstTimeSetupOrDefault, new FirstTimeSetupRequirement(requireAdmin: false));

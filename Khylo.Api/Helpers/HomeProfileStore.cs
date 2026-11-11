@@ -14,6 +14,9 @@ namespace Khylo.Api.Helpers;
 /// </summary>
 public sealed class HomeProfileStore
 {
+    private const string PinPrefix = "pbkdf2$";
+    private const int PinIterations = 210_000;
+
     private static readonly object _lock = new();
     private readonly string _path;
 
@@ -25,6 +28,13 @@ public sealed class HomeProfileStore
     {
         _path = Path.Combine(configurationDirectory, "khylo_home_profiles.json");
     }
+
+    /// <summary>
+    /// Says whether a PIN is allowed: four to eight digits.
+    /// </summary>
+    /// <param name="pin">The PIN.</param>
+    /// <returns>True for four to eight digits.</returns>
+    public static bool IsValidPin(string? pin) => pin is { Length: >= 4 and <= 8 } && pin.All(char.IsAsciiDigit);
 
     /// <summary>
     /// Gets the owner of the household a user belongs to: their own id if they own one or aren't in any.
@@ -108,19 +118,36 @@ public sealed class HomeProfileStore
     public bool HasPin(Guid userId) => Load().Pins.ContainsKey(userId);
 
     /// <summary>
-    /// Checks a PIN. Profiles without one always pass.
+    /// Checks a PIN. Profiles without one always pass, so callers that must not let that happen check <see cref="HasPin"/> first.
     /// </summary>
     /// <param name="userId">The profile.</param>
     /// <param name="pin">The PIN entered.</param>
     /// <returns>Whether the PIN is right.</returns>
     public bool CheckPin(Guid userId, string? pin)
     {
-        if (!Load().Pins.TryGetValue(userId, out var hash))
+        if (!Load().Pins.TryGetValue(userId, out var stored))
         {
             return true;
         }
 
-        return pin is not null && CryptographicOperations.FixedTimeEquals(Convert.FromHexString(hash), Hash(userId, pin));
+        if (pin is null)
+        {
+            return false;
+        }
+
+        if (stored.StartsWith(PinPrefix, StringComparison.Ordinal))
+        {
+            return VerifyPin(stored, pin);
+        }
+
+        // A PIN saved by an earlier version: right, and now kept the stronger way
+        var legacyRight = IsHex(stored) && CryptographicOperations.FixedTimeEquals(Convert.FromHexString(stored), LegacyHash(userId, pin));
+        if (legacyRight)
+        {
+            SetPin(userId, pin);
+        }
+
+        return legacyRight;
     }
 
     /// <summary>
@@ -138,7 +165,7 @@ public sealed class HomeProfileStore
             }
             else
             {
-                data.Pins[userId] = Convert.ToHexString(Hash(userId, pin));
+                data.Pins[userId] = HashPin(pin);
             }
         });
     }
@@ -224,8 +251,35 @@ public sealed class HomeProfileStore
     /// <returns>The households.</returns>
     public IReadOnlyDictionary<Guid, List<Guid>> GetHouseholds() => Load().Households;
 
-    // Salted with the user id, so the same PIN on two profiles stores differently
-    private static byte[] Hash(Guid userId, string pin) => SHA256.HashData(Encoding.UTF8.GetBytes(userId.ToString("N") + ":" + pin));
+    // pbkdf2$iterations$salt$hash: a slow hash with a random salt for each PIN, so a stolen file can't be reversed with a lookup table
+    private static string HashPin(string pin)
+    {
+        var salt = RandomNumberGenerator.GetBytes(16);
+        var hash = Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(pin), salt, PinIterations, HashAlgorithmName.SHA256, 32);
+        return string.Join('$', "pbkdf2", PinIterations.ToString(System.Globalization.CultureInfo.InvariantCulture), Convert.ToHexString(salt), Convert.ToHexString(hash));
+    }
+
+    private static bool VerifyPin(string stored, string pin)
+    {
+        var parts = stored.Split('$');
+        if (parts.Length != 4
+            || !int.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var iterations)
+            || iterations < 1
+            || !IsHex(parts[2])
+            || !IsHex(parts[3]))
+        {
+            return false;
+        }
+
+        var expected = Convert.FromHexString(parts[3]);
+        var actual = Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(pin), Convert.FromHexString(parts[2]), iterations, HashAlgorithmName.SHA256, expected.Length);
+        return CryptographicOperations.FixedTimeEquals(expected, actual);
+    }
+
+    private static bool IsHex(string text) => text.Length > 0 && text.Length % 2 == 0 && text.All(char.IsAsciiHexDigit);
+
+    // How PINs were kept before: one SHA-256 of the user id and the PIN
+    private static byte[] LegacyHash(Guid userId, string pin) => SHA256.HashData(Encoding.UTF8.GetBytes(userId.ToString("N") + ":" + pin));
 
     private HomeProfileData Load()
     {

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Khylo.Api.Extensions;
 using Khylo.Api.ModelBinders;
 using Khylo.Api.Models.CollectionDtos;
+using Khylo.Common.Api;
 using Khylo.Controller.Collections;
 using Khylo.Controller.Dto;
 using Khylo.Controller.Entities;
@@ -30,7 +31,7 @@ namespace Khylo.Api.Controllers;
 /// from franchise metadata, are managed by administrators and users allowed to manage collections.)
 /// </summary>
 [Route("Collections")]
-[Authorize]
+[Authorize(Policy = Policies.CollectionManagement)]
 public class CollectionController : BaseKhyloApiController
 {
     private readonly ICollectionManager _collectionManager;

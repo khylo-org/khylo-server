@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+using System.Net;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 
@@ -38,10 +41,38 @@ public class SecurityHeadersMiddleware
             // Only the parts of a content policy that can't break the players and readers: no framing by other
             // sites, no plug-in objects, no rewriting of the page's base address
             AddIfMissing(headers, "Content-Security-Policy", "frame-ancestors 'self'; object-src 'none'; base-uri 'self'");
+
+            // Tell browsers to use https for this name from now on (checked here, after the forwarded headers are applied, so
+            // a server behind a proxy that does the https is covered too)
+            if (ShouldSendHsts(context.Request.IsHttps, context.Request.Host.Host))
+            {
+                AddIfMissing(headers, "Strict-Transport-Security", "max-age=15552000");
+            }
+
             return Task.CompletedTask;
         });
 
         return _next(context);
+    }
+
+    /// <summary>
+    /// Says whether a response should carry the header that makes browsers insist on https for this name. Only over
+    /// https, and only for a real internet name: browsers ignore it for numbered addresses anyway, and a home name
+    /// (khylo.local, a single word) often has a self-made certificate that a browser must still be allowed to accept.
+    /// </summary>
+    /// <param name="isHttps">Whether the request came in over https.</param>
+    /// <param name="host">The name the request was sent to.</param>
+    /// <returns>True when the header should be sent.</returns>
+    public static bool ShouldSendHsts(bool isHttps, string? host)
+    {
+        var name = host?.Trim().Trim('[', ']').TrimEnd('.').ToLowerInvariant();
+        if (!isHttps || string.IsNullOrEmpty(name) || IPAddress.TryParse(name, out _) || !name.Contains('.', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return !new[] { ".local", ".lan", ".home", ".internal", ".home.arpa", ".localdomain", ".localhost", ".test", ".example" }
+            .Any(suffix => name.EndsWith(suffix, StringComparison.Ordinal));
     }
 
     private static void AddIfMissing(IHeaderDictionary headers, string name, string value)

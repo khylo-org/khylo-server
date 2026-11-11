@@ -20,6 +20,12 @@ namespace Khylo.Server.Implementations.Security
 {
     public class AuthorizationContext : IAuthorizationContext
     {
+        /// <summary>
+        /// How long a device's sign-in key may sit unused before it stops working. The apps use their key all the time, so
+        /// only a device that has been off or forgotten for this long is signed out; signing in again makes a fresh key.
+        /// </summary>
+        public static readonly TimeSpan TokenIdleLimit = TimeSpan.FromDays(90);
+
         private readonly IDbContextFactory<KhyloDbContext> _khyloDbProvider;
         private readonly IUserManager _userManager;
         private readonly IDeviceManager _deviceManager;
@@ -131,6 +137,12 @@ namespace Khylo.Server.Implementations.Security
             {
                 var device = _deviceManager.GetDevices(
                     new DeviceQuery { AccessToken = token }).Items.FirstOrDefault();
+
+                if (device is not null && IsIdleTooLong(device.DateLastActivity, DateTime.UtcNow))
+                {
+                    // Unused for too long: the key is no longer good (the caller is told the token is invalid)
+                    return authInfo;
+                }
 
                 if (device is not null)
                 {
@@ -266,6 +278,14 @@ namespace Khylo.Server.Implementations.Security
             authorizationHeader = authorizationHeader[(firstSpace + 1)..];
             return GetParts(authorizationHeader);
         }
+
+        /// <summary>
+        /// Says whether a sign-in key has gone unused for longer than <see cref="TokenIdleLimit"/>.
+        /// </summary>
+        /// <param name="lastActivityUtc">When the device last used its key.</param>
+        /// <param name="nowUtc">The time now.</param>
+        /// <returns>True when the key is too old to use.</returns>
+        public static bool IsIdleTooLong(DateTime lastActivityUtc, DateTime nowUtc) => nowUtc - lastActivityUtc > TokenIdleLimit;
 
         /// <summary>
         /// Get the authorization header components.

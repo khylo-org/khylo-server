@@ -27,7 +27,7 @@ namespace Khylo.Api.Controllers;
 /// <summary>
 /// Home profiles: a household's own profiles (like a family's on a streaming service). Anyone
 /// signed in to a profile can switch to another profile in the same household without a password;
-/// a PIN can protect a profile. Users the server is shared with outside the home are never part
+/// a PIN can protect a profile, and an administrator's profile always needs one. Users the server is shared with outside the home are never part
 /// of a household, so they never see or reach these profiles.
 /// </summary>
 [Route("Khylo/HomeProfiles")]
@@ -72,7 +72,7 @@ public class HomeProfilesController : BaseKhyloApiController
         var callerId = User.GetUserId();
         var ownerId = _store.GetOwner(callerId);
         var owner = _userManager.GetUserById(ownerId);
-        var callerIsKids = IsKids(_userManager.GetUserById(callerId));
+        var caller = _userManager.GetUserById(callerId);
         var levels = GetRatingLevels();
 
         var profiles = _store.GetMembers(ownerId)
@@ -88,11 +88,10 @@ public class HomeProfilesController : BaseKhyloApiController
                 PrimaryImageTag = _userManager.GetUserDto(user).PrimaryImageTag,
                 IsKids = IsKids(user),
                 RatingLimit = IsKids(user) ? DescribeLimit(levels, user.MaxParentalRatingScore!.Value) : null,
-                NeedsGrownUp = callerIsKids && !IsKids(user) && !_store.HasPin(user.Id),
+                NeedsGrownUp = !user.Id.Equals(callerId) && !_store.HasPin(user.Id) && NeedsPinToEnter(caller, user),
             })
             .ToList();
 
-        var caller = _userManager.GetUserById(callerId);
         return new HomeProfilesDto
         {
             Profiles = profiles,
@@ -240,10 +239,11 @@ public class HomeProfilesController : BaseKhyloApiController
             return Forbid();
         }
 
-        // A kids profile can only go to a grown-up's profile that has a PIN, and only with that PIN
-        if (!profileId.Equals(callerId) && IsKids(_userManager.GetUserById(callerId)) && !IsKids(_userManager.GetUserById(profileId)) && !_store.HasPin(profileId))
+        // A profile that can run the server, or a grown-up's profile reached from a kids profile, can only be entered
+        // with its PIN: without one there is nothing to stop a switch, so it is refused
+        if (!profileId.Equals(callerId) && NeedsPinToEnter(_userManager.GetUserById(callerId), _userManager.GetUserById(profileId)) && !_store.HasPin(profileId))
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, "Set a PIN on that profile first.");
         }
 
         if (!profileId.Equals(callerId))
@@ -251,7 +251,7 @@ public class HomeProfilesController : BaseKhyloApiController
             // PINs are short, so wrong guesses pause further tries (under a key no user name can match)
             var pinKey = "pin:" + profileId.ToString("N", System.Globalization.CultureInfo.InvariantCulture);
             var remote = HttpContext.GetNormalizedRemoteIP().ToString();
-            if (LoginThrottle.RetryAfter(pinKey, remote) is { } wait)
+            if (LoginThrottle.RetryAfter(pinKey, remote, pin: true) is { } wait)
             {
                 Response.Headers.RetryAfter = ((int)Math.Ceiling(wait.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
                 return StatusCode(StatusCodes.Status429TooManyRequests, "Too many wrong PINs. Try again in a few minutes.");
@@ -263,7 +263,7 @@ public class HomeProfilesController : BaseKhyloApiController
                 return Forbid();
             }
 
-            LoginThrottle.RecordSuccess(pinKey);
+            LoginThrottle.RecordSuccess(pinKey, remote);
         }
 
         return await _sessionManager.AuthenticateDirect(new AuthenticationRequest
@@ -283,10 +283,12 @@ public class HomeProfilesController : BaseKhyloApiController
     /// <param name="profileId">The profile.</param>
     /// <param name="request">The new PIN, or empty to remove it.</param>
     /// <response code="204">PIN saved.</response>
+    /// <response code="400">The PIN isn't four to eight digits.</response>
     /// <response code="403">Not allowed.</response>
     /// <returns>No content.</returns>
     [HttpPost("{profileId}/Pin")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult SetPin([FromRoute, Required] Guid profileId, [FromBody] SwitchHomeProfileRequest? request)
     {
@@ -295,6 +297,11 @@ public class HomeProfilesController : BaseKhyloApiController
         if (!profileId.Equals(callerId) && !(callerId.Equals(ownerId) && _store.GetMembers(ownerId).Contains(profileId)))
         {
             return Forbid();
+        }
+
+        if (!string.IsNullOrEmpty(request?.Pin) && !HomeProfileStore.IsValidPin(request.Pin))
+        {
+            return BadRequest("A PIN is four to eight digits.");
         }
 
         _store.SetPin(profileId, request?.Pin);
@@ -326,6 +333,11 @@ public class HomeProfilesController : BaseKhyloApiController
 
     // Kids profiles are marked when they're made; their limits only an administrator can change
     private bool IsKids(User? user) => user is not null && _store.IsKids(user.Id);
+
+    // Whether getting into a profile must be protected by its PIN: it is an administrator's (read from the account, since an
+    // administrator can make any profile one later), or it is a grown-up's and the one switching is a kids profile
+    private bool NeedsPinToEnter(User? caller, User? target)
+        => target is not null && (target.HasPermission(PermissionKind.IsAdministrator) || (IsKids(caller) && !IsKids(target)));
 
     // The owner of their own home (not a profile in someone else's) who is an admin, or whom the
     // server lets add profiles

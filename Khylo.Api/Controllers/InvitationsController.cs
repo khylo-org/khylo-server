@@ -3,13 +3,16 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Threading.Tasks;
 using Khylo.Api.Extensions;
+using Khylo.Api.Helpers;
 using Khylo.Common.Api;
+using Khylo.Common.Extensions;
 using Khylo.Controller.Configuration;
 using Khylo.Controller.Invitations;
 using Khylo.Model.Invitations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Khylo.Api.Controllers;
 
@@ -20,20 +23,32 @@ namespace Khylo.Api.Controllers;
 [Tags("Invitations")]
 public class InvitationsController : BaseKhyloApiController
 {
+    private const string GuessKey = "invitation-code";
+
     private readonly IInvitationManager _invitationManager;
     private readonly IServerConfigurationManager _serverConfigurationManager;
+    private readonly ILogger<InvitationsController> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="InvitationsController"/> class.
     /// </summary>
     /// <param name="invitationManager">The invitation manager.</param>
     /// <param name="serverConfigurationManager">The server configuration manager.</param>
+    /// <param name="logger">The logger.</param>
     public InvitationsController(
         IInvitationManager invitationManager,
-        IServerConfigurationManager serverConfigurationManager)
+        IServerConfigurationManager serverConfigurationManager,
+        ILogger<InvitationsController> logger)
     {
         _invitationManager = invitationManager;
         _serverConfigurationManager = serverConfigurationManager;
+        _logger = logger;
+    }
+
+    private ObjectResult TooManyTries(TimeSpan wait)
+    {
+        Response.Headers.RetryAfter = ((int)Math.Ceiling(wait.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return StatusCode(StatusCodes.Status429TooManyRequests, "Too many tries. Try again in a few minutes.");
     }
 
     /// <summary>
@@ -117,11 +132,20 @@ public class InvitationsController : BaseKhyloApiController
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public ActionResult<InvitationDetails> GetInvitationDetails([FromRoute, Required] string code)
     {
+        // Anyone can ask, so guessing codes is slowed down like guessing passwords
+        var remote = HttpContext.GetNormalizedRemoteIP().ToString();
+        if (LoginThrottle.RetryAfter(GuessKey, remote) is { } wait)
+        {
+            return TooManyTries(wait);
+        }
+
         var inv = _invitationManager.GetInvitationByCode(code);
         if (inv == null)
         {
+            LoginThrottle.RecordFailure(GuessKey, remote, accountExists: false);
             return NotFound();
         }
 
@@ -150,18 +174,37 @@ public class InvitationsController : BaseKhyloApiController
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<RedeemInvitationResult>> RedeemInvitation(
         [FromRoute, Required] string code,
         [FromBody, Required] RedeemInvitationRequest request)
     {
+        var remote = HttpContext.GetNormalizedRemoteIP().ToString();
+        if (LoginThrottle.RetryAfter(GuessKey, remote) is { } wait)
+        {
+            return TooManyTries(wait);
+        }
+
         try
         {
             var userId = await _invitationManager.RedeemInvitationAsync(code, request.Username, request.Password).ConfigureAwait(false);
             return new RedeemInvitationResult { UserId = userId, Success = true };
         }
-        catch (Exception ex)
+        catch (InvalidOperationException ex)
         {
+            // These messages are Khylo's own (the code isn't valid, the password isn't acceptable) and safe to show
+            LoginThrottle.RecordFailure(GuessKey, remote, accountExists: false);
             return BadRequest(new RedeemInvitationResult { Message = ex.Message });
+        }
+        catch (ArgumentException)
+        {
+            return BadRequest(new RedeemInvitationResult { Message = "That name can't be used. Choose another." });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Anything else stays in the log: what went wrong inside isn't for someone without an account
+            _logger.LogError(ex, "Couldn't create an account from an invitation");
+            return BadRequest(new RedeemInvitationResult { Message = "Couldn't create the account. Try again." });
         }
     }
 }

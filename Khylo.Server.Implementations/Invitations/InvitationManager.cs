@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Khylo.Common.Configuration;
+using Khylo.Controller.Authentication;
 using Khylo.Controller.Invitations;
 using Khylo.Controller.Library;
 using Khylo.Model.Invitations;
@@ -21,8 +22,6 @@ namespace Khylo.Server.Implementations.Invitations;
 /// </summary>
 public class InvitationManager : IInvitationManager, IDisposable
 {
-    private const int MinimumPasswordLength = 8;
-
     private static readonly JsonSerializerOptions _jsonSerializerOptions = new() { WriteIndented = true };
 
     private readonly ILogger<InvitationManager> _logger;
@@ -30,6 +29,7 @@ public class InvitationManager : IInvitationManager, IDisposable
     private readonly string _filePath;
     private readonly ConcurrentDictionary<Guid, KhyloInvitationDto> _invitations = new();
     private readonly SemaphoreSlim _fileLock = new(1, 1);
+    private readonly SemaphoreSlim _redeemLock = new(1, 1);
     private bool _disposed;
 
     /// <summary>
@@ -76,7 +76,7 @@ public class InvitationManager : IInvitationManager, IDisposable
 
         _invitations[invitation.Id] = invitation;
         SaveInvitations();
-        _logger.LogInformation("Created Khylo invitation {Code} valid until {Expiry}", invitation.Code, invitation.ExpiresAtUtc);
+        _logger.LogInformation("Created Khylo invitation {InvitationId} valid until {Expiry}", invitation.Id, invitation.ExpiresAtUtc);
         return invitation;
     }
 
@@ -106,7 +106,7 @@ public class InvitationManager : IInvitationManager, IDisposable
             inv.IsActive = false;
             inv.RevokedAtUtc ??= DateTime.UtcNow;
             SaveInvitations();
-            _logger.LogInformation("Revoked Khylo invitation {Code}", inv.Code);
+            _logger.LogInformation("Revoked Khylo invitation {InvitationId}", inv.Id);
             return true;
         }
 
@@ -123,7 +123,7 @@ public class InvitationManager : IInvitationManager, IDisposable
 
         _invitations.TryRemove(invitationId, out _);
         SaveInvitations();
-        _logger.LogInformation("Deleted Khylo invitation {Code}", inv.Code);
+        _logger.LogInformation("Deleted Khylo invitation {InvitationId}", inv.Id);
         return true;
     }
 
@@ -166,13 +166,26 @@ public class InvitationManager : IInvitationManager, IDisposable
     /// <inheritdoc/>
     public async Task<Guid> RedeemInvitationAsync(string code, string username, string password)
     {
+        // One redemption at a time: checking that an invitation still has uses left and counting this use have to happen
+        // together, or a single-use invitation could be redeemed by several people at once
+        await _redeemLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await RedeemCoreAsync(code, username, password).ConfigureAwait(false);
+        }
+        finally
+        {
+            _redeemLock.Release();
+        }
+    }
+
+    private async Task<Guid> RedeemCoreAsync(string code, string username, string password)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentException.ThrowIfNullOrWhiteSpace(username);
-        ArgumentException.ThrowIfNullOrWhiteSpace(password);
-
-        if (password.Length < MinimumPasswordLength)
+        if (PasswordPolicy.Problem(password, username) is { } problem)
         {
-            throw new InvalidOperationException("Passwords need at least 8 characters.");
+            throw new InvalidOperationException(problem);
         }
 
         var invitation = GetInvitationByCode(code)
@@ -221,7 +234,7 @@ public class InvitationManager : IInvitationManager, IDisposable
         }
 
         SaveInvitations();
-        _logger.LogInformation("Successfully redeemed invitation {Code} for user {Username} ({UserId})", code, username, user.Id);
+        _logger.LogInformation("Successfully redeemed invitation {InvitationId} for user {Username} ({UserId})", invitation.Id, username, user.Id);
         return user.Id;
     }
 
@@ -288,6 +301,7 @@ public class InvitationManager : IInvitationManager, IDisposable
             if (disposing)
             {
                 _fileLock.Dispose();
+                _redeemLock.Dispose();
             }
 
             _disposed = true;

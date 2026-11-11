@@ -149,7 +149,7 @@ namespace Khylo.Server.Integration.Tests.Controllers
 
         [Fact]
         [Priority(2)]
-        public async Task UpdateUserPassword_Empty_RemoveSetPassword()
+        public async Task UpdateUserPassword_Empty_IsRefused()
         {
             var client = _factory.CreateClient();
 
@@ -161,7 +161,25 @@ namespace Khylo.Server.Integration.Tests.Controllers
             };
 
             using var response = await UpdateUserPassword(client, _testUserId, createRequest);
-            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
+        [Priority(2)]
+        public async Task UpdateUserPassword_TooShort_IsRefused()
+        {
+            var client = _factory.CreateClient();
+
+            client.DefaultRequestHeaders.AddAuthHeader(_accessToken!);
+
+            var createRequest = new UpdateUserPassword()
+            {
+                CurrentPw = "4randomPa$$word",
+                NewPw = "short",
+            };
+
+            using var response = await UpdateUserPassword(client, _testUserId, createRequest);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
 
         [Fact]
