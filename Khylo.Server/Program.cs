@@ -83,7 +83,10 @@ namespace Khylo.Server
             // end at once, before the server or even the command line parser starts
             if (args.Length > 0 && string.Equals(args[0], "--apply-update", StringComparison.Ordinal))
             {
-                Environment.ExitCode = UpdateHelper.RunFromArguments(args);
+                // The same task also opens a media folder to the limited account when the owner asked for that
+                var access = Khylo.Controller.IO.KhyloFolderAccess.RunFromArguments(args);
+                var update = UpdateHelper.RunFromArguments(args);
+                Environment.ExitCode = update != 0 ? update : access;
                 return Task.CompletedTask;
             }
 

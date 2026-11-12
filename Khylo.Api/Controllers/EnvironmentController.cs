@@ -5,7 +5,9 @@ using System.IO;
 using System.Linq;
 using Khylo.Api.Models.EnvironmentDtos;
 using Khylo.Common.Api;
+using Khylo.Common.Configuration;
 using Khylo.Common.Extensions;
+using Khylo.Controller.IO;
 using Khylo.Model.IO;
 using Khylo.Model.System;
 using Microsoft.AspNetCore.Authorization;
@@ -26,16 +28,19 @@ public class EnvironmentController : BaseKhyloApiController
 
     private readonly IFileSystem _fileSystem;
     private readonly ILogger<EnvironmentController> _logger;
+    private readonly IApplicationPaths _paths;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EnvironmentController"/> class.
     /// </summary>
     /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{EnvironmentController}"/> interface.</param>
-    public EnvironmentController(IFileSystem fileSystem, ILogger<EnvironmentController> logger)
+    /// <param name="paths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
+    public EnvironmentController(IFileSystem fileSystem, ILogger<EnvironmentController> logger, IApplicationPaths paths)
     {
         _fileSystem = fileSystem;
         _logger = logger;
+        _paths = paths;
     }
 
     /// <summary>
@@ -65,6 +70,65 @@ public class EnvironmentController : BaseKhyloApiController
                 .OrderBy(i => i.FullName);
 
         return entries.Select(f => new FileSystemEntryInfo(f.Name, f.FullName, f.IsDirectory ? FileSystemEntryType.Directory : FileSystemEntryType.File));
+    }
+
+    /// <summary>
+    /// Says whether Khylo can open a folder, and when it can't, whether Khylo can be given access from here.
+    /// </summary>
+    /// <param name="path">The folder.</param>
+    /// <param name="checkChanges">Whether to also find out if Khylo can add files there (this briefly adds one, so only on request).</param>
+    /// <response code="200">The answer.</response>
+    /// <returns>Whether the folder can be opened, as which Windows account Khylo runs, and whether access can be given.</returns>
+    [HttpGet("FolderAccess")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<FolderAccessDto> GetFolderAccess([FromQuery, Required] string path, [FromQuery] bool checkChanges = false)
+    {
+        var result = new FolderAccessDto { CanOpen = KhyloFolderAccess.CanOpen(path), Account = KhyloFolderAccess.RunsAs() };
+        if (!result.CanOpen)
+        {
+            result.HowToFix = KhyloFolderAccess.HowToFix(KhyloFolderAccess.HowKhyloRuns(), path, result.Account);
+            _logger.LogWarning("Khylo, running as {Account}, isn't allowed to open {Path}", result.Account, path);
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            result.CanChange = checkChanges && result.CanOpen && Directory.Exists(path) && KhyloFolderAccess.CanChange(path);
+            if (KhyloFolderAccess.HelperAvailable())
+            {
+                result.WhyNotGive = KhyloFolderAccess.WhyNot(path, KhyloFolderAccess.PlacesOnThisPc());
+                result.CanGive = result.WhyNotGive is null;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Asks for Khylo to be given access to a folder on this PC. The part of Khylo that runs as the system does it, after
+    /// checking the folder itself, usually within a minute.
+    /// </summary>
+    /// <param name="request">The folder, and whether Khylo may change what is in it.</param>
+    /// <response code="204">Asked.</response>
+    /// <response code="400">Khylo can't be given access to that folder this way.</response>
+    /// <returns>Nothing.</returns>
+    [HttpPost("FolderAccess")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult GiveFolderAccess([FromBody, Required] GiveFolderAccessDto request)
+    {
+        if (!KhyloFolderAccess.HelperAvailable())
+        {
+            return BadRequest("Khylo can't change who may open folders on this server. Give the account Khylo runs as access to the folder in Windows.");
+        }
+
+        if (KhyloFolderAccess.WhyNot(request.Path, KhyloFolderAccess.PlacesOnThisPc()) is { } problem)
+        {
+            return BadRequest(problem);
+        }
+
+        _logger.LogInformation("Asked for access to {Path} (changes: {AllowChanges})", request.Path, request.AllowChanges);
+        KhyloFolderAccess.Ask(_paths.CachePath, request.Path!, request.AllowChanges);
+        return NoContent();
     }
 
     /// <summary>

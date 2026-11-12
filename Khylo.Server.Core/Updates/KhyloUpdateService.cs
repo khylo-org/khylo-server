@@ -34,9 +34,11 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
     // A checksum list is a few kilobytes and its signature about seventy bytes; anything much bigger isn't one
     private const int MaxChecksumListBytes = 1024 * 1024;
     private const int MaxSignatureBytes = 1024;
+    private const int MaxLogLines = 80;
 
     private static readonly TimeSpan _checkEvery = TimeSpan.FromHours(6);
     private static readonly TimeSpan _wake = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan _pendingGiveUp = TimeSpan.FromMinutes(20);
     private static readonly JsonSerializerOptions _json = new() { WriteIndented = true };
 
     private readonly ILogger<KhyloUpdateService> _logger;
@@ -49,11 +51,13 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
     private readonly string _updateDir;
     private readonly string _current;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly object _outcomeLock = new();
     private State _state;
     private DateTime? _installingSince;
     private string? _checkError;
     private string? _stage;
     private int? _percent;
+    private DateTime _lastOutcomeCheck = DateTime.MinValue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="KhyloUpdateService"/> class.
@@ -89,12 +93,21 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
 
     private bool Installing => _installingSince is { } since && DateTime.UtcNow - since < TimeSpan.FromMinutes(15);
 
+    // An update was started (it is saved, so this is true after Khylo restarts too) and is not finished or given up on
+    private bool PendingActive => _state.PendingBuild is { } wanted
+        && !string.Equals(wanted, _current, StringComparison.OrdinalIgnoreCase)
+        && _state.PendingAt is { } at
+        && DateTime.UtcNow - at < _pendingGiveUp;
+
     private bool IsRealBuild => _current.StartsWith("DEV-V", StringComparison.OrdinalIgnoreCase) || _current.StartsWith('V');
 
     /// <inheritdoc />
     public KhyloUpdateStatus GetStatus()
     {
+        // The update's script writes its result after the new Khylo has started, so it is looked for again as pages ask
+        RefreshOutcome(false);
         var (can, why) = WhyCantInstall();
+        var pendingActive = PendingActive;
         var latest = _state.Latest;
         return new KhyloUpdateStatus
         {
@@ -109,9 +122,13 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             LastChecked = _state.LastChecked,
             CanInstall = can,
             WhyNot = why,
-            Installing = Installing,
-            Stage = Installing ? _stage : null,
+            Installing = Installing || pendingActive,
+            Stage = Installing ? _stage : (pendingActive ? "Installing" : null),
             Percent = Installing ? _percent : null,
+            UpdatingTo = Installing || pendingActive ? _state.PendingBuild : null,
+            UpdateStartedAt = Installing || pendingActive ? _state.PendingAt : null,
+            ServerTime = DateTime.UtcNow,
+            UpdateLog = _state.Log.ToList(),
             LastResult = ResultStillWorthShowing() ? _state.LastResult : null,
             CheckError = _checkError
         };
@@ -204,13 +221,23 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             }
 
             _installingSince = DateTime.UtcNow;
+            _state.Log.Clear();
+            _state.LastResult = null;
+            _state.LastResultAt = null;
+            _state.LastResultBuild = null;
+            _state.PendingBuild = status.Latest.Build;
+            _state.PendingAt = DateTime.UtcNow;
+            AddLog($"Update to {status.Latest.Build} requested by {startedBy}.");
             try
             {
                 await PrepareAndHandOverAsync(status.Latest.Build, startedBy, cancellationToken).ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex)
             {
                 _installingSince = null;
+                _state.PendingBuild = null;
+                _state.PendingAt = null;
+                AddLog($"The update stopped: {ex.Message}");
                 throw;
             }
         }
@@ -225,9 +252,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
     {
         try
         {
-            ForgetNoteFromAnotherBuild();
-            ReadLastResult();
-            ReadPendingResult();
+            RefreshOutcome(true);
             await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken).ConfigureAwait(false);
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -364,6 +389,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Khylo-Server");
 
         _logger.LogInformation("Downloading Khylo {Build} ({File})", build, fileName);
+        AddLog($"Found {build} on the release page. Checking Khylo's signature on its checksum list.");
 
         // The checksum list says which installer is the real one, so it has to carry Khylo's signature first
         var sumsBytes = await DownloadSmallAsync(client, sumsAddress, MaxChecksumListBytes, cancellationToken).ConfigureAwait(false);
@@ -374,6 +400,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             throw new InvalidOperationException("The release's checksum list doesn't carry Khylo's signature, so Khylo won't install it.");
         }
 
+        AddLog("The checksum list carries Khylo's signature.");
         var expected = KhyloReleaseFeed.ChecksumFor(Encoding.UTF8.GetString(sumsBytes), fileName)
             ?? throw new InvalidOperationException("The installer isn't in the release's checksum list, so Khylo won't install it.");
 
@@ -385,6 +412,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
 
         _stage = "Downloading";
         _percent = 0;
+        AddLog($"Downloading {fileName}.");
         using (var response = await client.GetAsync(address, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
         {
             response.EnsureSuccessStatusCode();
@@ -407,6 +435,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
 
         _stage = "Checking";
         _percent = null;
+        AddLog("Download finished. Checking it against the checksum.");
 
         string actual;
         await using (var check = File.OpenRead(setup))
@@ -421,11 +450,14 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         }
 
         _stage = "Installing";
+        AddLog("The download matches its checksum.");
         var port = _config.GetNetworkConfiguration().InternalHttpPort;
         await _activity.CreateAsync(new ActivityLog($"Khylo is updating to {build} ({startedBy})", "KhyloUpdate", Guid.Empty)).ConfigureAwait(false);
         if (direct)
         {
             var installDir = WindowsUpdate.InstalledFolder() ?? throw new InvalidOperationException("Khylo's folder wasn't found.");
+            Save();
+            AddLog("Starting the installer. Khylo stops and starts again; this page reconnects by itself.");
             WindowsUpdate.StartInstaller(work, setup, actual, build, port, Path.Combine(work, "result.txt"), installDir, _logger);
         }
         else
@@ -433,8 +465,7 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             UpdateHelper.HandOver(work, sumsBytes, signature, build, port);
 
             // The helper works where this account can't see, so how it went is told by the build Khylo comes back as
-            _state.PendingBuild = build;
-            _state.PendingAt = DateTime.UtcNow;
+            AddLog("Handed over to the update helper, which installs it within a few minutes.");
             Save();
             _logger.LogWarning("Staged Khylo {Build} for the update helper, which installs it within a few minutes", build);
         }
@@ -500,6 +531,57 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         Save();
     }
 
+    // Adds a line to the update log (kept with the other update settings, so it survives Khylo restarting)
+    private void AddLog(string text)
+    {
+        _state.Log.Add(new KhyloUpdateLogLine { At = DateTime.UtcNow, Text = text });
+        if (_state.Log.Count > MaxLogLines)
+        {
+            _state.Log.RemoveRange(0, _state.Log.Count - MaxLogLines);
+        }
+
+        Save();
+    }
+
+    // Looks at how an update went: at start-up, and again whenever the dashboard asks (at most every ten seconds), because the
+    // update's script writes its result only after the new Khylo is up and answering
+    private void RefreshOutcome(bool force)
+    {
+        lock (_outcomeLock)
+        {
+            if (!force && DateTime.UtcNow - _lastOutcomeCheck < TimeSpan.FromSeconds(10))
+            {
+                return;
+            }
+
+            _lastOutcomeCheck = DateTime.UtcNow;
+            ForgetNoteFromAnotherBuild();
+            ReadLastResult();
+            ReadPendingResult();
+        }
+    }
+
+    // Says how an update went, once, and closes the update
+    private void FinishWith(string note)
+    {
+        var alreadySaid = string.Equals(_state.LastResult, note, StringComparison.Ordinal)
+            && string.Equals(_state.LastResultBuild, _current, StringComparison.OrdinalIgnoreCase);
+        _state.LastResult = note;
+        _state.LastResultAt = DateTime.UtcNow;
+        _state.LastResultBuild = _current;
+        _state.PendingBuild = null;
+        _state.PendingAt = null;
+        if (!alreadySaid)
+        {
+            AddLog(note);
+            _logger.LogInformation("Last update: {Result}", note);
+        }
+        else
+        {
+            Save();
+        }
+    }
+
     // The note the update task left: in its own folder in the system's update folder, or (from an update an older Khylo started)
     // in Khylo's cache. A limited account can't open the system's folder; it tells how an update went by its build instead.
     private string? LatestResultFile()
@@ -541,26 +623,17 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
 
         if (string.Equals(wanted, _current, StringComparison.OrdinalIgnoreCase))
         {
-            _state.LastResult = $"Khylo updated to {wanted}.";
+            FinishWith($"Khylo updated to {_current}.");
         }
-        else if (_state.PendingAt is { } at && DateTime.UtcNow - at > TimeSpan.FromMinutes(20))
+        else if (_state.PendingAt is { } at && DateTime.UtcNow - at > _pendingGiveUp)
         {
-            _state.LastResult = $"The update to {wanted} didn't finish, so Khylo is still on {_current}. You can run the installer from the release page yourself.";
+            FinishWith($"The update to {wanted} didn't finish, so Khylo is still on {_current}. You can run the installer from the release page yourself.");
         }
-        else
-        {
-            return;
-        }
-
-        _state.LastResultAt = DateTime.UtcNow;
-        _state.LastResultBuild = _current;
-        _state.PendingBuild = null;
-        _state.PendingAt = null;
-        Save();
-        _logger.LogInformation("Last update: {Result}", _state.LastResult);
     }
 
-    // What the last update did, left by the update task
+    // What the last update did, left by the update task. A result is only believed if it fits what is running now: "ok" must be for
+    // the running build, and a roll-back or failure must be recent. Anything else is a leftover from an earlier update and is
+    // thrown away, so it can never be shown as if it were about this one.
     private void ReadLastResult()
     {
         try
@@ -572,22 +645,65 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
             }
 
             var parts = File.ReadAllText(path).Trim().Split('|');
+            var written = File.GetLastWriteTimeUtc(path);
+            var folder = Path.GetDirectoryName(path);
             File.Delete(path);
+
+            var kind = parts[0];
             var build = parts.Length > 1 ? parts[1] : string.Empty;
-            _state.LastResult = parts[0] switch
+            var recent = DateTime.UtcNow - written < TimeSpan.FromMinutes(45);
+            string? note = null;
+            if (kind == "ok" && string.Equals(build, _current, StringComparison.OrdinalIgnoreCase))
             {
-                "ok" => $"Khylo updated to {build}.",
-                "rolledback" => $"The update to {build} didn't start properly, so Khylo went back to the version it had.",
-                _ => "The last update didn't finish."
-            };
-            _state.LastResultAt = DateTime.UtcNow;
-            _state.LastResultBuild = _current;
-            Save();
-            _logger.LogInformation("Last update: {Result}", _state.LastResult);
+                note = $"Khylo updated to {_current}.";
+            }
+            else if (kind == "rolledback" && recent && !string.Equals(build, _current, StringComparison.OrdinalIgnoreCase))
+            {
+                note = $"The update to {build} didn't start properly, so Khylo went back to the version it had.";
+            }
+            else if (kind == "failed" && recent)
+            {
+                note = "The last update didn't finish.";
+            }
+
+            if (note is null)
+            {
+                _logger.LogInformation("Ignored an old update result ({Kind} for {Build}); Khylo is running {Current}", kind, build, _current);
+                return;
+            }
+
+            ImportInstallerLog(folder);
+            FinishWith(note);
         }
         catch (IOException ex)
         {
             _logger.LogWarning("Couldn't read the last update's result: {Reason}", ex.Message);
+        }
+    }
+
+    // What the installer's own script did (backup, install, waiting for the new Khylo), added to the update log
+    private void ImportInstallerLog(string? folder)
+    {
+        try
+        {
+            var file = folder is null ? null : Path.Combine(folder, "update.log");
+            if (file is null || !File.Exists(file))
+            {
+                return;
+            }
+
+            foreach (var line in File.ReadAllLines(file).Where(l => !string.IsNullOrWhiteSpace(l)).TakeLast(30))
+            {
+                _state.Log.Add(new KhyloUpdateLogLine { At = File.GetLastWriteTimeUtc(file), Text = "Installer: " + line.Trim() });
+            }
+        }
+        catch (IOException)
+        {
+            // The installer's own log is a bonus; the update's result doesn't depend on it
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // An account that may not look in the system's update folder
         }
     }
 
@@ -648,5 +764,8 @@ public sealed class KhyloUpdateService : BackgroundService, IKhyloUpdateService
         public string? PendingBuild { get; set; }
 
         public DateTime? PendingAt { get; set; }
+
+        // What the last or current update has done, oldest first
+        public List<KhyloUpdateLogLine> Log { get; set; } = new();
     }
 }

@@ -43,6 +43,18 @@ public class KhyloUpdateStatus
     /// <summary>Gets or sets how much of the download is done (0 to 100), while it is downloading.</summary>
     public int? Percent { get; set; }
 
+    /// <summary>Gets or sets the build an update in progress is installing (empty when none is).</summary>
+    public string? UpdatingTo { get; set; }
+
+    /// <summary>Gets or sets when the update in progress began (UTC), so every page shows the same elapsed time.</summary>
+    public DateTime? UpdateStartedAt { get; set; }
+
+    /// <summary>Gets or sets this server's clock (UTC) when the status was made, so a page can count from the server's time.</summary>
+    public DateTime ServerTime { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Gets or sets what the last or current update has done so far, oldest first.</summary>
+    public System.Collections.Generic.IReadOnlyList<KhyloUpdateLogLine> UpdateLog { get; set; } = Array.Empty<KhyloUpdateLogLine>();
+
     /// <summary>Gets or sets what happened with the last update, in plain words.</summary>
     public string? LastResult { get; set; }
 
