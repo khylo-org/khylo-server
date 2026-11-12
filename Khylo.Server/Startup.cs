@@ -211,6 +211,7 @@ namespace Khylo.Server
                 }
 
                 mainApp.UseMiddleware<Khylo.Server.Middleware.SecurityHeadersMiddleware>();
+                mainApp.UseMiddleware<Khylo.Server.Middleware.KhyloClientOnlyMiddleware>();
                 mainApp.UseForwardedHeaders();
                 mainApp.UseMiddleware<Khylo.Server.Middleware.KhyloWebAddressMiddleware>();
                 mainApp.UseMiddleware<ExceptionMiddleware>();

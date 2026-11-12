@@ -240,6 +240,116 @@ public sealed class KhyloFolderAccessTests : IDisposable
         Assert.True(KhyloFolderAccess.CanChange(media));
     }
 
+    // Your screenshot: DFS01 was given to the limited account, but Movies has permissions of its own, so Windows never spread the
+    // entry into it and it stayed locked. On a real folder: the one grant on the root misses it, and the tree grant does not.
+    [Fact]
+    public void AFolderWithPermissionsOfItsOwn_GetsTheGrantToo()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var media = Path.Combine(_folder, "DFS01");
+        var movies = Path.Combine(media, "Movies");
+        var film = Path.Combine(movies, "A Film (2020)");
+        var plain = Path.Combine(media, "Music", "Album");
+        Directory.CreateDirectory(film);
+        Directory.CreateDirectory(plain);
+        Icacls(movies, "/inheritance:d", "/Q");
+
+        // What 11.11.01 did: one grant on the root
+        Run([.. KhyloFolderAccess.GrantArguments(media, false)]);
+        Assert.Contains("LOCAL SERVICE", Icacls(plain), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("LOCAL SERVICE", Icacls(movies), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("LOCAL SERVICE", Icacls(film), StringComparison.OrdinalIgnoreCase);
+
+        var result = KhyloFolderAccess.GrantTree(media, false, args => Run(args).Exit, OwnPermissions);
+
+        Assert.Empty(result.Failed);
+        Assert.Equal(1, result.FoldersWithOwnPermissions);
+        Assert.Contains("(OI)(CI)(RX)", Icacls(movies), StringComparison.Ordinal);
+        Assert.Contains("LOCAL SERVICE", Icacls(film), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LOCAL SERVICE", Icacls(plain), StringComparison.OrdinalIgnoreCase);
+    }
+
+    // A junction inside the folder could lead anywhere on the PC. It is never entered, and Windows' own spreading of the entry must not
+    // follow it either: what it points at is left alone.
+    [Fact]
+    public void AJunctionInsideTheFolder_IsNeverFollowed()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var media = Path.Combine(_folder, "DVR");
+        var elsewhere = Path.Combine(_folder, "ElsewhereOnThePc");
+        Directory.CreateDirectory(Path.Combine(elsewhere, "Inner"));
+        Directory.CreateDirectory(media);
+        var link = Path.Combine(media, "Link");
+        var made = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{elsewhere}\"") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true })!;
+        made.StandardOutput.ReadToEnd();
+        made.WaitForExit();
+        Assert.True(Directory.Exists(link), "the junction could not be made");
+
+        var visited = new System.Collections.Generic.List<string>();
+        int Record(string[] args)
+        {
+            visited.Add(args[0]);
+            return Run(args).Exit;
+        }
+
+        var result = KhyloFolderAccess.GrantTree(media, true, Record, _ => true);
+
+        Assert.Empty(result.Failed);
+        Assert.DoesNotContain(visited, path => path.StartsWith(elsewhere, StringComparison.OrdinalIgnoreCase) || path.StartsWith(link, StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain("LOCAL SERVICE", Icacls(elsewhere), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("LOCAL SERVICE", Icacls(Path.Combine(elsewhere, "Inner")), StringComparison.OrdinalIgnoreCase);
+
+        Directory.Delete(link);
+    }
+
+    // What a scan skips without a word: folders inside that Khylo may not open. They are counted and named, not silently ignored.
+    [Fact]
+    public void FolderInsideThatKhyloMayNotOpen_AreFoundAndNamed()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var media = Path.Combine(_folder, "Library");
+        var locked = Path.Combine(media, "Movies");
+        Directory.CreateDirectory(Path.Combine(locked, "A Film"));
+        Directory.CreateDirectory(Path.Combine(media, "Music", "Album"));
+        Assert.Equal(0, KhyloFolderAccess.FindBlocked(media).Count);
+
+        Icacls(locked, "/deny", Environment.UserName + ":(RD)", "/Q");
+
+        var found = KhyloFolderAccess.FindBlocked(media);
+        Assert.Equal(1, found.Count);
+        Assert.Equal([locked], found.Sample);
+        Assert.True(found.Complete);
+
+        Icacls(locked, "/remove:d", Environment.UserName, "/Q");
+        Assert.Equal(0, KhyloFolderAccess.FindBlocked(media).Count);
+    }
+
+    [Fact]
+    public void ATreeTooBigToLookThroughInTime_SaysItWasNotAllLookedAt()
+    {
+        var media = Path.Combine(_folder, "Big");
+        for (var i = 0; i < 30; i++)
+        {
+            Directory.CreateDirectory(Path.Combine(media, "d" + i));
+        }
+
+        var found = KhyloFolderAccess.FindBlocked(media, maxFolders: 5);
+
+        Assert.False(found.Complete);
+    }
+
     [Fact]
     public void CanChange_SaysNo_WhereFilesCantBeAdded()
     {
@@ -258,6 +368,9 @@ public sealed class KhyloFolderAccessTests : IDisposable
         Assert.False(KhyloFolderAccess.CanChange(media));
         Assert.True(KhyloFolderAccess.CanOpen(media));
     }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static bool OwnPermissions(DirectoryInfo folder) => folder.GetAccessControl().AreAccessRulesProtected;
 
     private static string Icacls(params string[] arguments) => Run(arguments).Output;
 

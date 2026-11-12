@@ -77,17 +77,31 @@ public class EnvironmentController : BaseKhyloApiController
     /// </summary>
     /// <param name="path">The folder.</param>
     /// <param name="checkChanges">Whether to also find out if Khylo can add files there (this briefly adds one, so only on request).</param>
+    /// <param name="deep">Whether to also look inside for folders Khylo is not allowed to open (a scan would skip them without a word).</param>
     /// <response code="200">The answer.</response>
     /// <returns>Whether the folder can be opened, as which Windows account Khylo runs, and whether access can be given.</returns>
     [HttpGet("FolderAccess")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<FolderAccessDto> GetFolderAccess([FromQuery, Required] string path, [FromQuery] bool checkChanges = false)
+    public ActionResult<FolderAccessDto> GetFolderAccess([FromQuery, Required] string path, [FromQuery] bool checkChanges = false, [FromQuery] bool deep = false)
     {
         var result = new FolderAccessDto { CanOpen = KhyloFolderAccess.CanOpen(path), Account = KhyloFolderAccess.RunsAs() };
         if (!result.CanOpen)
         {
             result.HowToFix = KhyloFolderAccess.HowToFix(KhyloFolderAccess.HowKhyloRuns(), path, result.Account);
             _logger.LogWarning("Khylo, running as {Account}, isn't allowed to open {Path}", result.Account, path);
+        }
+
+        if (deep && result.CanOpen && Directory.Exists(path))
+        {
+            var blocked = KhyloFolderAccess.FindBlocked(path);
+            result.BlockedBelow = blocked.Count;
+            result.BlockedSample = blocked.Sample;
+            result.BlockedComplete = blocked.Complete;
+            if (blocked.Count > 0)
+            {
+                result.HowToFix = KhyloFolderAccess.HowToFix(KhyloFolderAccess.HowKhyloRuns(), blocked.Sample.FirstOrDefault() ?? path, result.Account);
+                _logger.LogWarning("Khylo, running as {Account}, isn't allowed to open {Count} folder(s) inside {Path}, for example {Example}", result.Account, blocked.Count, path, blocked.Sample.FirstOrDefault());
+            }
         }
 
         if (OperatingSystem.IsWindows())

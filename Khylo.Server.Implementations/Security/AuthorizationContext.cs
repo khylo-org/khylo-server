@@ -9,6 +9,7 @@ using Khylo.Controller.Configuration;
 using Khylo.Controller.Devices;
 using Khylo.Controller.Library;
 using Khylo.Controller.Net;
+using Khylo.Controller.Security;
 using Khylo.Data.Queries;
 using Khylo.Database.Implementations;
 using Khylo.Extensions;
@@ -141,6 +142,12 @@ namespace Khylo.Server.Implementations.Security
                 if (device is not null && IsIdleTooLong(device.DateLastActivity, DateTime.UtcNow))
                 {
                     // Unused for too long: the key is no longer good (the caller is told the token is invalid)
+                    return authInfo;
+                }
+
+                if (device is not null && (!KhyloClientRules.IsKhyloClient(device.AppName) || (authInfo.Client is not null && !KhyloClientRules.IsKhyloClient(authInfo.Client))))
+                {
+                    // Signed in by an app that is not a Khylo app (or speaking as one): never good here
                     return authInfo;
                 }
 

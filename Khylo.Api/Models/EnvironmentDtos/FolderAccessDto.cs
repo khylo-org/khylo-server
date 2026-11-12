@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Khylo.Api.Models.EnvironmentDtos;
 
 /// <summary>
@@ -24,6 +26,21 @@ public class FolderAccessDto
     /// Gets or sets what the owner has to do so Khylo can open the folder, for the way this Khylo is installed.
     /// </summary>
     public string? HowToFix { get; set; }
+
+    /// <summary>
+    /// Gets or sets how many folders inside this one Khylo is not allowed to open (only when asked for).
+    /// </summary>
+    public int BlockedBelow { get; set; }
+
+    /// <summary>
+    /// Gets or sets a few of those folders, by name.
+    /// </summary>
+    public IReadOnlyList<string>? BlockedSample { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether every folder inside was looked at.
+    /// </summary>
+    public bool BlockedComplete { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether Khylo can be given access to the folder from its own pages.

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -30,7 +31,6 @@ public static class KhyloFolderAccess
     public const string RequestFileName = "request.json";
 
     private const int MaxRequestBytes = 4096;
-    private const int WaitForWindowsMinutes = 8;
 
     private static readonly JsonSerializerOptions _json = new() { PropertyNameCaseInsensitive = true };
 
@@ -462,25 +462,164 @@ public static class KhyloFolderAccess
             return false;
         }
 
+        // Windows rewrites the permissions of everything inside, which takes minutes on a very big folder; the helper's task is allowed
+        // hours for it. Folders with permissions of their own are found and given the same entry (see GrantTree).
+        return GrantTree(folder.FullName, request.AllowChanges, RunIcacls, HasOwnPermissions).Failed.Count == 0;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int RunIcacls(string[] arguments)
+    {
         var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "icacls.exe"))
         {
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
-        foreach (var argument in GrantArguments(folder.FullName, request.AllowChanges))
+        foreach (var argument in arguments)
         {
             start.ArgumentList.Add(argument);
         }
 
-        // Windows rewrites the permissions of everything inside, which takes minutes on a very big folder. The helper's task
-        // may only run so long, so past that it leaves Windows to finish by itself.
         using var process = Process.Start(start);
         if (process is null)
         {
-            return false;
+            return -1;
         }
 
-        return !process.WaitForExit(TimeSpan.FromMinutes(WaitForWindowsMinutes)) || process.ExitCode == 0;
+        // What icacls prints is not needed, but must be read or a full pipe would stop it
+        process.OutputDataReceived += (_, _) => { };
+        process.ErrorDataReceived += (_, _) => { };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        process.WaitForExit();
+        return process.ExitCode;
+    }
+
+    // A folder whose permissions don't come from the folder above it: Windows' spreading of the entry stops there
+    [SupportedOSPlatform("windows")]
+    private static bool HasOwnPermissions(DirectoryInfo folder)
+    {
+        try
+        {
+            return folder.GetAccessControl().AreAccessRulesProtected;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or InvalidOperationException)
+        {
+            // Can't even be read: the grant is tried, and if it fails the folder is reported by name
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Gives the limited account the folder and everything in it. Windows spreads the entry into the folders that take their
+    /// permissions from the one above, but not into folders that have permissions of their own (common on file servers), so
+    /// the tree is walked and each such folder gets the same entry. Only folders are visited, never files, and a link (a
+    /// junction or symbolic link) is never entered or changed: a link could lead anywhere on the PC.
+    /// </summary>
+    /// <param name="root">The folder.</param>
+    /// <param name="allowChanges">Whether to allow changes too.</param>
+    /// <param name="icacls">Runs Windows' permissions tool with these arguments and returns its exit code.</param>
+    /// <param name="hasOwnPermissions">Says whether a folder's permissions are its own.</param>
+    /// <returns>How many folders needed their own entry, and which ones could not be given it.</returns>
+    public static TreeGrant GrantTree(string root, bool allowChanges, Func<string[], int> icacls, Func<DirectoryInfo, bool> hasOwnPermissions)
+    {
+        ArgumentNullException.ThrowIfNull(icacls);
+        ArgumentNullException.ThrowIfNull(hasOwnPermissions);
+        var failed = new List<string>();
+        var own = 0;
+        if (icacls(GrantArguments(root, allowChanges)) != 0)
+        {
+            failed.Add(root);
+        }
+
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            var folder = new DirectoryInfo(pending.Pop());
+            IEnumerable<DirectoryInfo> children;
+            try
+            {
+                children = folder.EnumerateDirectories("*", new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint }).ToList();
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                continue;
+            }
+
+            foreach (var child in children)
+            {
+                if (IsLink(child))
+                {
+                    continue;
+                }
+
+                if (hasOwnPermissions(child))
+                {
+                    own++;
+                    if (icacls(GrantArguments(child.FullName, allowChanges)) != 0)
+                    {
+                        failed.Add(child.FullName);
+                    }
+                }
+
+                pending.Push(child.FullName);
+            }
+        }
+
+        return new TreeGrant(own, failed);
+    }
+
+    /// <summary>
+    /// Looks through a folder for sub-folders Khylo is not allowed to open, which is what a scan would silently skip. Only folders
+    /// are visited, links are never entered, and it stops early on a very big tree.
+    /// </summary>
+    /// <param name="root">The folder.</param>
+    /// <param name="maxFolders">The most folders to look at.</param>
+    /// <param name="budget">The longest to take.</param>
+    /// <returns>How many folders could not be opened, a few of them by name, and whether the whole tree was looked at.</returns>
+    public static BlockedFolders FindBlocked(string root, int maxFolders = 200_000, TimeSpan? budget = null)
+    {
+        var until = DateTime.UtcNow + (budget ?? TimeSpan.FromSeconds(20));
+        var blocked = new List<string>();
+        var count = 0;
+        var seen = 0;
+        var complete = true;
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            if (++seen > maxFolders || DateTime.UtcNow > until)
+            {
+                complete = false;
+                break;
+            }
+
+            var folder = pending.Pop();
+            try
+            {
+                foreach (var child in new DirectoryInfo(folder).EnumerateDirectories("*", new EnumerationOptions { IgnoreInaccessible = false, AttributesToSkip = FileAttributes.ReparsePoint }))
+                {
+                    pending.Push(child.FullName);
+                }
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException)
+            {
+                count++;
+                if (blocked.Count < 5)
+                {
+                    blocked.Add(folder);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or ArgumentException or NotSupportedException)
+            {
+                // Gone, or not readable for another reason: not a permissions problem
+            }
+        }
+
+        return new BlockedFolders(count, blocked, complete);
     }
 
     [SupportedOSPlatform("windows")]
@@ -544,6 +683,21 @@ public static class KhyloFolderAccess
     private static bool IsAtOrUnder(string path, string folder)
         => path.Equals(folder, StringComparison.OrdinalIgnoreCase)
             || (path.Length > folder.Length && path.StartsWith(folder, StringComparison.OrdinalIgnoreCase) && path[folder.Length] == '\\');
+
+    /// <summary>
+    /// What giving access to a whole tree did.
+    /// </summary>
+    /// <param name="FoldersWithOwnPermissions">How many folders had permissions of their own and were given the entry one by one.</param>
+    /// <param name="Failed">The folders that could not be given it (for example ones the system itself may not change).</param>
+    public sealed record TreeGrant(int FoldersWithOwnPermissions, IReadOnlyList<string> Failed);
+
+    /// <summary>
+    /// The folders inside a folder that Khylo is not allowed to open.
+    /// </summary>
+    /// <param name="Count">How many.</param>
+    /// <param name="Sample">A few of them, by name.</param>
+    /// <param name="Complete">Whether every folder was looked at (false for a very big tree, so the count may be low).</param>
+    public sealed record BlockedFolders(int Count, IReadOnlyList<string> Sample, bool Complete);
 
     /// <summary>
     /// Where Windows keeps itself, its programs and its people's folders.

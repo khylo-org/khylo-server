@@ -133,6 +133,19 @@ public sealed class SetupServer : IDisposable
                                 .Configure(app =>
                                 {
                                     app.UseHealthChecks("/health");
+                                    app.Use(async (context, next) =>
+                                    {
+                                        // While starting up, an app that is not a Khylo app gets nothing either (not even the server's name)
+                                        if (Khylo.Controller.Security.KhyloClientRules.MustRefuse(context.Request))
+                                        {
+                                            context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
+                                            context.Response.ContentType = "text/plain; charset=utf-8";
+                                            await context.Response.WriteAsync(Khylo.Controller.Security.KhyloClientRules.RefusedMessage).ConfigureAwait(false);
+                                            return;
+                                        }
+
+                                        await next().ConfigureAwait(false);
+                                    });
                                     app.UseForwardedHeaders();
                                     app.Map("/startup/logger", loggerRoute =>
                                     {
