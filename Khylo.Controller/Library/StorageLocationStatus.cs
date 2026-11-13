@@ -21,4 +21,10 @@ public class StorageLocationStatus
 
     /// <summary>Gets or sets when it was last checked (UTC).</summary>
     public DateTime LastChecked { get; set; }
+
+    /// <summary>Gets or sets what Windows or the file server said the last time Khylo tried to connect it, when it can't be reached.</summary>
+    public string? Reason { get; set; }
+
+    /// <summary>Gets advice about how the folder is written (a dot after the server's name can stop working after a restart), or null.</summary>
+    public string? Note => NetworkNames.Warning(Path);
 }

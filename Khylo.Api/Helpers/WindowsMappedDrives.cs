@@ -7,6 +7,7 @@ using System.Security;
 using System.Security.Principal;
 using System.Threading.Tasks;
 using Khylo.Api.Models.EnvironmentDtos;
+using Khylo.Controller.Library;
 using Microsoft.Win32;
 
 namespace Khylo.Api.Helpers;
@@ -44,9 +45,20 @@ public static class WindowsMappedDrives
             return [];
         }
 
+        // A drive mapped with a dot after the server's name (\\nas.\Movies) is offered as \\nas\Movies when that opens too: it is the same
+        // share, and the plain name keeps working after the file server restarts
+        await Task.WhenAll(drives.Where(d => NetworkNames.HasDottedServer(d.Address)).Select(async drive =>
+        {
+            var plain = NetworkNames.WithoutDot(drive.Address);
+            if (await CanOpenAsync(plain).ConfigureAwait(false))
+            {
+                drive.Address = plain;
+            }
+        })).ConfigureAwait(false);
+
         // Whether this server can open each one as it is (a share that allows everyone, or one already connected)
         await Task.WhenAll(drives.Select(async drive => drive.Reachable = await CanOpenAsync(drive.Address).ConfigureAwait(false))).ConfigureAwait(false);
-        return drives;
+        return drives.GroupBy(d => d.Address, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
     }
 
     private static async Task<bool> CanOpenAsync(string address)

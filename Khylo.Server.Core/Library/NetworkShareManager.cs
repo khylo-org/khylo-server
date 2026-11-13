@@ -92,13 +92,24 @@ public sealed class NetworkShareManager : BackgroundService, INetworkShareManage
         var kind = string.Equals(request.Kind, "nfs", StringComparison.OrdinalIgnoreCase) ? "nfs" : "smb";
         var (host, remote) = kind == "nfs" ? ParseNfs(request.Address) : ParseSmb(request.Address);
 
+        // \\nas.\Movies and \\nas\Movies are the same share; the plain spelling is the one that keeps working after the server restarts
+        if (kind == "smb")
+        {
+            host = NetworkNames.HostWithoutDot(host);
+        }
+
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var address = kind == "nfs" ? $"{host}:{remote}" : $@"\\{host}\{remote.Replace('/', '\\')}";
-            if (_shares.FirstOrDefault(s => string.Equals(s.Address, address, StringComparison.OrdinalIgnoreCase)) is { } existing)
+            var already = _shares.Where(s => kind == "nfs"
+                ? string.Equals(s.Address, address, StringComparison.OrdinalIgnoreCase)
+                : NetworkNames.SameShare(s.Address, address)).ToList();
+            if (already.Count > 0)
             {
-                throw new NetworkShareException($"{address} is already connected as \"{existing.Name}\".");
+                // Adding a share Khylo already has is how its login gets fixed (a changed password, or a server that came back and
+                // wants the login again): save the new login on it and connect it again
+                return await UpdateLoginAsync(already, request, cancellationToken).ConfigureAwait(false);
             }
 
             var name = UniqueName(Clean(string.IsNullOrWhiteSpace(request.Name) ? remote.Split('/', '\\').Last(p => p.Length > 0) : request.Name!));
@@ -136,6 +147,49 @@ public sealed class NetworkShareManager : BackgroundService, INetworkShareManage
         {
             _lock.Release();
         }
+    }
+
+    private async Task<NetworkShareInfo> UpdateLoginAsync(List<StoredShare> shares, AddNetworkShareRequest request, CancellationToken cancellationToken)
+    {
+        var hasLogin = !string.IsNullOrWhiteSpace(request.Username);
+        var changed = shares.Select(s => (Share: s, s.Username, s.Password, s.ReadOnly)).ToList();
+        foreach (var share in shares)
+        {
+            if (share.Kind == "smb" && hasLogin)
+            {
+                share.Username = request.Username!.Trim();
+                share.Password = string.IsNullOrEmpty(request.Password) ? null : Protect(request.Password);
+            }
+
+            share.ReadOnly = request.ReadOnly;
+        }
+
+        try
+        {
+            foreach (var share in shares)
+            {
+                // Drop the connection Windows holds with the old login, so the new one is really used
+                await DisconnectAsync(share).ConfigureAwait(false);
+                await ConnectAsync(share, cancellationToken).ConfigureAwait(false);
+                StorageHealth.SetShareProblem(share.Address, null);
+            }
+        }
+        catch (NetworkShareException ex)
+        {
+            foreach (var (share, username, password, readOnly) in changed)
+            {
+                share.Username = username;
+                share.Password = password;
+                share.ReadOnly = readOnly;
+            }
+
+            StorageHealth.SetShareProblem(shares[0].Address, ex.Message);
+            throw;
+        }
+
+        Save();
+        _logger.LogInformation("Saved a new login for network share {Address} and connected it", shares[0].Address);
+        return ToInfo(shares[0], true);
     }
 
     /// <inheritdoc />
@@ -178,10 +232,12 @@ public sealed class NetworkShareManager : BackgroundService, INetworkShareManage
                         try
                         {
                             await ConnectAsync(share, stoppingToken).ConfigureAwait(false);
+                            StorageHealth.SetShareProblem(share.Address, null);
                             _logger.LogInformation("Reconnected network share {Address}", share.Address);
                         }
                         catch (NetworkShareException ex)
                         {
+                            StorageHealth.SetShareProblem(share.Address, ex.Message);
                             _logger.LogWarning("Network share {Address} isn't available: {Reason}", share.Address, ex.Message);
                         }
                     }
@@ -360,7 +416,7 @@ public sealed class NetworkShareManager : BackgroundService, INetworkShareManage
 
         if (result == 0)
         {
-            throw new NetworkShareException($"Connected to \\\\{root}, but there's no folder {share.Address} inside it.");
+            throw new NetworkShareException(WhyFolderWontOpen(share.Address));
         }
 
         _logger.LogWarning("Windows couldn't connect {Share} (error {Error})", resource.RemoteName, result);
@@ -372,6 +428,29 @@ public sealed class NetworkShareManager : BackgroundService, INetworkShareManage
             1219 => $"Windows is already connected to {share.Host} with a different login. Use the same login, or disconnect it in File Explorer first.",
             _ => $"Couldn't connect {share.Address} (Windows error {result})."
         });
+    }
+
+    // The connection worked but the folder can't be opened: say what Windows said, not "no folder", which is only true when it is
+    private static string WhyFolderWontOpen(string address)
+    {
+        var hint = NetworkNames.HasDottedServer(address) ? " " + NetworkNames.Warning(address) : string.Empty;
+        try
+        {
+            _ = Directory.EnumerateFileSystemEntries(address).FirstOrDefault();
+            return $"Connected, but {address} didn't open the first time. Khylo will try again in a minute." + hint;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return $"Connected to the server, but there's no folder {address} inside it." + hint;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return $"Windows connected to the server but refused access to {address} (access denied). The login may not be allowed on this share." + hint;
+        }
+        catch (IOException ex)
+        {
+            return $"Windows connected to the server but couldn't open {address}: {ex.Message.Trim()}" + hint;
+        }
     }
 
     // Turns mount's error output into something an admin can act on

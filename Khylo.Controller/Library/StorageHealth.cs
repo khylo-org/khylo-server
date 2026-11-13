@@ -15,6 +15,7 @@ namespace Khylo.Controller.Library;
 public static class StorageHealth
 {
     private static readonly ConcurrentDictionary<string, StorageLocationStatus> _locations = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, string> _shareProblems = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Gets or sets how to reconnect a path's storage (set by the server; on Windows it restores mapped drives).
@@ -26,7 +27,48 @@ public static class StorageHealth
     /// </summary>
     /// <returns>The locations.</returns>
     public static IReadOnlyList<StorageLocationStatus> Snapshot()
-        => _locations.Values.OrderBy(l => l.Library, StringComparer.OrdinalIgnoreCase).ThenBy(l => l.Path, StringComparer.OrdinalIgnoreCase).ToList();
+    {
+        var all = _locations.Values.OrderBy(l => l.Library, StringComparer.OrdinalIgnoreCase).ThenBy(l => l.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (var location in all)
+        {
+            location.Reason = location.Reachable ? null : ReasonFor(location.Path);
+        }
+
+        return all;
+    }
+
+    /// <summary>
+    /// Remembers why a network share couldn't be connected (the manager clears it once it connects).
+    /// </summary>
+    /// <param name="share">The share, for example \nas\Movies.</param>
+    /// <param name="problem">What went wrong, in plain words, or null once it works.</param>
+    public static void SetShareProblem(string share, string? problem)
+    {
+        var key = NetworkNames.WithoutDot(share).TrimEnd('\\');
+        if (problem is null)
+        {
+            _shareProblems.TryRemove(key, out _);
+        }
+        else
+        {
+            _shareProblems[key] = problem;
+        }
+    }
+
+    private static string? ReasonFor(string path)
+    {
+        var plain = NetworkNames.WithoutDot(path);
+        foreach (var (share, problem) in _shareProblems)
+        {
+            if (plain.StartsWith(share, StringComparison.OrdinalIgnoreCase)
+                && (plain.Length == share.Length || plain[share.Length] == '\\'))
+            {
+                return problem;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Checks a folder or file can be reached, giving up after a few seconds (a dropped network share can
