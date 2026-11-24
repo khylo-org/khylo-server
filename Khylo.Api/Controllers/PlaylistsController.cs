@@ -138,14 +138,17 @@ public class PlaylistsController : BaseKhyloApiController
             return Forbid();
         }
 
+        var isOwner = playlist.OwnerUserId.Equals(callingUserId);
+
         await _playlistManager.UpdatePlaylist(new PlaylistUpdateRequest
         {
             UserId = callingUserId,
             Id = playlistId,
             Name = updatePlaylistRequest.Name,
             Ids = updatePlaylistRequest.Ids,
-            Users = updatePlaylistRequest.Users,
-            Public = updatePlaylistRequest.IsPublic
+            // Only the owner decides who a playlist is shared with and whether it is public; an editor can change the items and name
+            Users = isOwner ? updatePlaylistRequest.Users : null,
+            Public = isOwner ? updatePlaylistRequest.IsPublic : null
         }).ConfigureAwait(false);
 
         return NoContent();

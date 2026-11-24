@@ -25,6 +25,11 @@ namespace Khylo.Server.Integration.Tests
             var userResponse = await client.GetByteArrayAsync("/Startup/User");
             var user = JsonSerializer.Deserialize<StartupUserDto>(userResponse, jsonOptions);
 
+            // Setup can't be finished while the administrator has no password
+            user!.Password = "Integration-Test-Passw0rd!";
+            using var userSet = await client.PostAsJsonAsync("/Startup/User", user, jsonOptions);
+            Assert.Equal(HttpStatusCode.NoContent, userSet.StatusCode);
+
             using var completeResponse = await client.PostAsync("/Startup/Complete", new ByteArrayContent(Array.Empty<byte>()));
             Assert.Equal(HttpStatusCode.NoContent, completeResponse.StatusCode);
 

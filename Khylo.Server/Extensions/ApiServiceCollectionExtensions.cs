@@ -89,7 +89,9 @@ namespace Khylo.Server.Extensions
                 options.AddPolicy(
                     Policies.RequiresElevation,
                     policy => policy.AddAuthenticationSchemes(AuthenticationSchemes.CustomAuthentication)
-                        .RequireClaim(ClaimTypes.Role, UserRoles.Administrator));
+                        .RequireClaim(ClaimTypes.Role, UserRoles.Administrator)
+                        // An administrator whose own remote access is switched off can't use admin calls from outside the home network either
+                        .AddRequirements(new DefaultAuthorizationRequirement(validateParentalSchedule: false)));
             });
         }
 

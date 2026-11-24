@@ -149,6 +149,9 @@ public class InvitationsController : BaseKhyloApiController
             return NotFound();
         }
 
+        // A real code isn't a wrong guess
+        LoginThrottle.Release(GuessKey, remote);
+
         var serverName = _serverConfigurationManager.Configuration.ServerName;
         if (string.IsNullOrEmpty(serverName))
         {
@@ -188,6 +191,7 @@ public class InvitationsController : BaseKhyloApiController
         try
         {
             var userId = await _invitationManager.RedeemInvitationAsync(code, request.Username, request.Password).ConfigureAwait(false);
+            LoginThrottle.Release(GuessKey, remote);
             return new RedeemInvitationResult { UserId = userId, Success = true };
         }
         catch (InvalidOperationException ex)
@@ -198,12 +202,14 @@ public class InvitationsController : BaseKhyloApiController
         }
         catch (ArgumentException)
         {
+            LoginThrottle.Release(GuessKey, remote);
             return BadRequest(new RedeemInvitationResult { Message = "That name can't be used. Choose another." });
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Anything else stays in the log: what went wrong inside isn't for someone without an account
             _logger.LogError(ex, "Couldn't create an account from an invitation");
+            LoginThrottle.Release(GuessKey, remote);
             return BadRequest(new RedeemInvitationResult { Message = "Couldn't create the account. Try again." });
         }
     }

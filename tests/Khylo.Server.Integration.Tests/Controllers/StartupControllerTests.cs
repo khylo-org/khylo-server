@@ -69,6 +69,17 @@ namespace Khylo.Server.Integration.Tests.Controllers
         }
 
         [Fact]
+        [Priority(-2)]
+        public async Task CompleteWizard_AdministratorHasNoPassword_BadRequest()
+        {
+            var client = _factory.CreateClient();
+
+            // Setup can't be finished while the only administrator has no password: it would sign in with an empty one
+            var response = await client.PostAsync("/Startup/Complete", new ByteArrayContent(Array.Empty<byte>()), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        [Fact]
         [Priority(-1)]
         public async Task User_EditUser_Success()
         {

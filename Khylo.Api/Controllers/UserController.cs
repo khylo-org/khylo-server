@@ -261,8 +261,16 @@ public class UserController : BaseKhyloApiController
         }
         catch (SecurityException e)
         {
+            // Not allowed at this time or from here: not a wrong guess
+            LoginThrottle.Release(request.Username, remote);
+
             // rethrow adding IP address to message
             throw new SecurityException($"[{HttpContext.GetNormalizedRemoteIP()}] {e.Message}", e);
+        }
+        catch (Exception)
+        {
+            LoginThrottle.Release(request.Username, remote);
+            throw;
         }
     }
 
@@ -280,7 +288,19 @@ public class UserController : BaseKhyloApiController
     {
         try
         {
-            return _quickConnectManager.GetAuthorizedRequest(request.Secret);
+            var authorized = _quickConnectManager.GetAuthorizedRequest(request.Secret);
+
+            // A person whose remote access is switched off can't pick up a session from outside the home network either
+            var quickConnectUser = authorized.User is null ? null : _userManager.GetUserById(authorized.User.Id);
+            if (quickConnectUser is not null
+                && !quickConnectUser.HasPermission(PermissionKind.EnableRemoteAccess)
+                && !HttpContext.IsLocal()
+                && !_networkManager.IsInLocalNetwork(HttpContext.GetNormalizedRemoteIP()))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, "This account can't sign in from outside the home network.");
+            }
+
+            return authorized;
         }
         catch (SecurityException e)
         {
@@ -632,7 +652,23 @@ public class UserController : BaseKhyloApiController
             return StatusCode(StatusCodes.Status429TooManyRequests, "Too many tries. Try again in a few minutes.");
         }
 
-        var result = await _userManager.RedeemPasswordResetPin(forgotPasswordPinRequest.Pin).ConfigureAwait(false);
+        PinRedeemResult result;
+        try
+        {
+            result = await _userManager.RedeemPasswordResetPin(forgotPasswordPinRequest.Pin).ConfigureAwait(false);
+        }
+        catch (ResourceNotFoundException)
+        {
+            // A wrong PIN is reported by an exception, so it has to be counted here
+            LoginThrottle.RecordFailure("forgot-pin", remote);
+            throw;
+        }
+        catch (Exception)
+        {
+            LoginThrottle.Release("forgot-pin", remote);
+            throw;
+        }
+
         if (result.Success)
         {
             LoginThrottle.RecordSuccess("forgot-pin", remote);

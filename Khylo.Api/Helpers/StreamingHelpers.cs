@@ -111,7 +111,7 @@ public static class StreamingHelpers
             ?? throw new ResourceNotFoundException();
 
         // Only what this person may see: a kids profile can't play something else just by knowing its id
-        if (state.User is not null && !item.IsVisible(state.User))
+        if (state.User is not null && (!item.IsVisible(state.User) || !item.IsVisibleStandalone(state.User)))
         {
             throw new ResourceNotFoundException();
         }

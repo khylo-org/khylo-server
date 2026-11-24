@@ -14,6 +14,7 @@ using Khylo.Controller.Subtitles;
 using Khylo.Model.Dto;
 using Khylo.Model.Entities;
 using Khylo.Model.IO;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -124,7 +125,7 @@ public class SubtitleControllerTests
 
         fileSystem = new Mock<IFileSystem>();
 
-        return new SubtitleController(
+        var controller = new SubtitleController(
             Mock.Of<IServerConfigurationManager>(),
             libraryManager.Object,
             Mock.Of<ISubtitleManager>(),
@@ -133,5 +134,7 @@ public class SubtitleControllerTests
             Mock.Of<IProviderManager>(),
             fileSystem.Object,
             NullLogger<SubtitleController>.Instance);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        return controller;
     }
 }

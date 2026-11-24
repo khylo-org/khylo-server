@@ -31,6 +31,12 @@ public static class LoginThrottle
     private static readonly Dictionary<string, List<DateTime>> _failures = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, DateTime> _knownAddresses = new(StringComparer.OrdinalIgnoreCase);
 
+    // Guesses that were let through but haven't finished yet. They count as failures straight away, so a burst of
+    // simultaneous guesses can't all pass the check before the first one is recorded. Each one expires on its own in case
+    // the request never reaches RecordFailure or RecordSuccess.
+    private static readonly TimeSpan _pendingLife = TimeSpan.FromSeconds(60);
+    private static readonly Dictionary<string, List<DateTime>> _pending = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// How long until this attempt may be made, or null if it may be made now.
     /// </summary>
@@ -44,9 +50,10 @@ public static class LoginThrottle
         var where = Normalize(address);
         lock (_lock)
         {
+            var pairKey = PairKey(account, where);
             var waits = new List<TimeSpan?>
             {
-                Wait(PairKey(account, where), MaxFailuresPerAccountAndAddress, now),
+                Wait(pairKey, MaxFailuresPerAccountAndAddress, now),
                 Wait("ip:" + where, MaxFailuresPerAddress, now)
             };
             if (pin)
@@ -58,7 +65,34 @@ public static class LoginThrottle
                 waits.Add(Wait("u:" + account, MaxFailuresPerAccount, now));
             }
 
-            return waits.Where(w => w.HasValue).Select(w => w!.Value).DefaultIfEmpty().Max() is var longest && longest > TimeSpan.Zero ? longest : null;
+            var longest = waits.Where(w => w.HasValue).Select(w => w!.Value).DefaultIfEmpty().Max();
+            if (longest > TimeSpan.Zero)
+            {
+                return longest;
+            }
+
+            // Allowed: hold a place for this guess until it is recorded as right or wrong
+            AddPending(pairKey, now);
+            AddPending("ip:" + where, now);
+            AddPending("u:" + account, now);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gives back the place held by <see cref="RetryAfter"/> when the request ended without a right or wrong guess
+    /// (an error, or something that isn't a guess), so it isn't counted against the person.
+    /// </summary>
+    /// <param name="account">The user name (or key) that was passed to <see cref="RetryAfter"/>.</param>
+    /// <param name="address">The address it came from.</param>
+    public static void Release(string? account, string address)
+    {
+        var where = Normalize(address);
+        lock (_lock)
+        {
+            ReleasePending(PairKey(account, where));
+            ReleasePending("ip:" + where);
+            ReleasePending("u:" + account);
         }
     }
 
@@ -74,6 +108,9 @@ public static class LoginThrottle
         var where = Normalize(address);
         lock (_lock)
         {
+            ReleasePending(PairKey(account, where));
+            ReleasePending("ip:" + where);
+            ReleasePending("u:" + account);
             Add("ip:" + where, now);
             if (accountExists)
             {
@@ -96,6 +133,9 @@ public static class LoginThrottle
         var where = Normalize(address);
         lock (_lock)
         {
+            ReleasePending(PairKey(account, where));
+            ReleasePending("ip:" + where);
+            ReleasePending("u:" + account);
             _failures.Remove(PairKey(account, where));
             _knownAddresses[PairKey(account, where)] = now;
             if (_knownAddresses.Count > MaxKnownAddresses)
@@ -138,12 +178,11 @@ public static class LoginThrottle
 
     private static TimeSpan? Wait(string key, int max, DateTime now)
     {
-        if (!_failures.TryGetValue(key, out var times))
-        {
-            return null;
-        }
-
-        var recent = times.Where(t => t > now - _window).OrderBy(t => t).ToList();
+        var recent = _failures.TryGetValue(key, out var times)
+            ? times.Where(t => t > now - _window).OrderBy(t => t).ToList()
+            : [];
+        recent.AddRange(_pending.TryGetValue(key, out var held) ? held.Where(t => t > now - _pendingLife) : []);
+        recent.Sort();
         if (recent.Count < max)
         {
             return null;
@@ -151,6 +190,32 @@ public static class LoginThrottle
 
         // Free again once the oldest of the last `max` failures leaves the window
         return recent[recent.Count - max] + _window - now;
+    }
+
+    private static void AddPending(string key, DateTime now)
+    {
+        if (!_pending.TryGetValue(key, out var held))
+        {
+            _pending[key] = held = [];
+        }
+
+        held.Add(now);
+    }
+
+    private static void ReleasePending(string key)
+    {
+        if (_pending.TryGetValue(key, out var held))
+        {
+            if (held.Count > 0)
+            {
+                held.RemoveAt(0);
+            }
+
+            if (held.Count == 0)
+            {
+                _pending.Remove(key);
+            }
+        }
     }
 
     private static void Add(string key, DateTime now)
@@ -171,6 +236,15 @@ public static class LoginThrottle
             if (_failures[key].Count == 0)
             {
                 _failures.Remove(key);
+            }
+        }
+
+        foreach (var key in _pending.Keys.ToList())
+        {
+            _pending[key].RemoveAll(t => t <= now - _pendingLife);
+            if (_pending[key].Count == 0)
+            {
+                _pending.Remove(key);
             }
         }
 

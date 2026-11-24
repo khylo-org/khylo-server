@@ -124,7 +124,9 @@ namespace Khylo.Server.Implementations.Users
             {
                 Action = ForgotPasswordAction.PinCode,
                 PinExpirationDate = expireTime,
-                PinFile = pinFile
+
+                // The file name only: the folder it sits in is not shown to someone who isn't signed in
+                PinFile = Path.GetFileName(pinFile)
             };
         }
 

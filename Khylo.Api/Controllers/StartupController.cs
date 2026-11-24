@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using System.Threading.Tasks;
 using Khylo.Api.Models.StartupDtos;
 using Khylo.Common.Api;
@@ -7,6 +8,9 @@ using Khylo.Common.Net;
 using Khylo.Controller.Authentication;
 using Khylo.Controller.Configuration;
 using Khylo.Controller.Library;
+using Khylo.Data;
+using Khylo.Database.Implementations.Enums;
+using Khylo.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -37,11 +41,19 @@ public class StartupController : BaseKhyloApiController
     /// Completes the startup wizard.
     /// </summary>
     /// <response code="204">Startup wizard completed.</response>
+    /// <response code="400">No administrator with a password exists yet.</response>
     /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
     [HttpPost("Complete")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult CompleteWizard()
     {
+        // Setup can't be finished while the only administrator has no password, or anyone who reaches the server could sign in as it
+        if (!_userManager.GetUsers().Any(u => u.HasPermission(PermissionKind.IsAdministrator) && !string.IsNullOrEmpty(u.Password)))
+        {
+            return BadRequest("Create an administrator with a password before finishing setup.");
+        }
+
         _config.Configuration.IsStartupWizardCompleted = true;
         _config.SaveConfiguration();
         return NoContent();

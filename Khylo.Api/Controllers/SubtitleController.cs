@@ -229,6 +229,13 @@ public class SubtitleController : BaseKhyloApiController
         index ??= routeIndex;
         format ??= routeFormat;
 
+        // A signed-in person only gets subtitles of items they may see (a kids profile or a library-limited user gets 404)
+        var requestingUser = User.GetUserId();
+        if (!requestingUser.Equals(Guid.Empty) && _libraryManager.GetItemById<BaseItem>(itemId.Value, requestingUser) is null)
+        {
+            return NotFound();
+        }
+
         if (string.Equals(format, "js", StringComparison.OrdinalIgnoreCase))
         {
             format = "json";

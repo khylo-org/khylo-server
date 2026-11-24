@@ -126,4 +126,31 @@ public class LoginThrottleTests
 
         Assert.NotNull(LoginThrottle.RetryAfter(account, "198.51.100.77"));
     }
+
+    [Fact]
+    public void RetryAfter_SimultaneousGuessesAreCountedBeforeTheyFinish()
+    {
+        var account = Account();
+        var allowed = 0;
+        for (var i = 0; i < 40; i++)
+        {
+            if (LoginThrottle.RetryAfter(account, "198.51.100.200") is null)
+            {
+                allowed++;
+            }
+        }
+
+        Assert.Equal(10, allowed);
+    }
+
+    [Fact]
+    public void Release_GivesBackTheHeldPlace()
+    {
+        var account = Account();
+        for (var i = 0; i < 40; i++)
+        {
+            Assert.Null(LoginThrottle.RetryAfter(account, "198.51.100.201"));
+            LoginThrottle.Release(account, "198.51.100.201");
+        }
+    }
 }

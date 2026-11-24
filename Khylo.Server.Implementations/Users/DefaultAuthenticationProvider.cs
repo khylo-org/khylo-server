@@ -16,6 +16,7 @@ namespace Khylo.Server.Implementations.Users
     {
         private readonly ILogger<DefaultAuthenticationProvider> _logger;
         private readonly ICryptoProvider _cryptographyProvider;
+        private readonly Lazy<PasswordHash> _dummyHash;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="DefaultAuthenticationProvider"/> class.
@@ -26,6 +27,7 @@ namespace Khylo.Server.Implementations.Users
         {
             _logger = logger;
             _cryptographyProvider = cryptographyProvider;
+            _dummyHash = new Lazy<PasswordHash>(() => cryptographyProvider.CreatePasswordHash(Guid.NewGuid().ToString("N")));
         }
 
         /// <inheritdoc />
@@ -55,6 +57,8 @@ namespace Khylo.Server.Implementations.Users
 
             if (resolvedUser is null)
             {
+                // Do the same slow work a real account would, so how long the answer takes doesn't reveal which names exist
+                _cryptographyProvider.Verify(_dummyHash.Value, password ?? string.Empty);
                 ThrowAuthenticationException();
             }
 
