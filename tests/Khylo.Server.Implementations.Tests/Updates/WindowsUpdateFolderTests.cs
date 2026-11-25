@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -60,6 +61,25 @@ public sealed class WindowsUpdateFolderTests : IDisposable
             Assert.Contains(who, sid => sid.IsWellKnown(WellKnownSidType.LocalSystemSid));
             Assert.Contains(who, sid => sid.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid));
         }
+    }
+
+    // The backup of the old version only exists in case the new one doesn't start. Once the new one answers it is removed (it used to
+    // stay until the next update or the uninstall, and removing it then took minutes); if the new one doesn't start it must be kept,
+    // because it is what gets put back.
+    [Fact]
+    public void TheBackupIsRemovedOnlyOnceTheNewVersionIsAnswering()
+    {
+        var field = typeof(WindowsUpdate).GetField("UpdateScript", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(field);
+        var script = Assert.IsType<string>(field.GetRawConstantValue());
+
+        var answering = script.IndexOf("Log 'The new version is answering'", StringComparison.Ordinal);
+        var removed = script.IndexOf("Log 'Removed the backup of the old version'", StringComparison.Ordinal);
+        var rollback = script.IndexOf("Log 'The new version did not start; putting the old one back'", StringComparison.Ordinal);
+
+        Assert.True(answering >= 0 && rollback > answering, "the script no longer has a success branch followed by a roll-back branch");
+        Assert.InRange(removed, answering + 1, rollback - 1);
+        Assert.Contains("robocopy $backup $install /MIR", script[rollback..], StringComparison.Ordinal);
     }
 
     public void Dispose()

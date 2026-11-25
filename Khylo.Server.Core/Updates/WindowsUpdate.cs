@@ -57,6 +57,10 @@ internal static class WindowsUpdate
         if ($ok) {
             Log 'The new version is answering'
             Set-Content -Path '{{RESULT}}' -Value 'ok|{{BUILD}}'
+            # The backup was only there in case the new version didn't start, so it goes now instead of lingering until the next
+            # update (or the uninstall), when removing it takes minutes with the progress window open.
+            Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
+            Log 'Removed the backup of the old version'
         } else {
             Log 'The new version did not start; putting the old one back'
             schtasks /End /TN "Khylo Server" | Out-Null
